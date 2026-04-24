@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:presensi_app/core/constants.dart';
 import 'package:presensi_app/core/storage.dart';
+import 'package:http_parser/http_parser.dart';
 
 class ApiClient {
   static final ApiClient _instance = ApiClient._internal();
@@ -71,6 +72,7 @@ class ApiClient {
       fileField,
       fileBytes,
       filename: filename,
+      contentType: MediaType('image', 'jpeg'),
     ));
 
     final streamed = await request.send().timeout(const Duration(seconds: 30));
