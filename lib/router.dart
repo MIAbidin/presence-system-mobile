@@ -24,38 +24,36 @@ GoRouter createRouter(AuthProvider authProvider) {
     refreshListenable: authProvider,
     initialLocation  : '/login',
 
-    // ── Redirect guard ────────────────────────────────────
+    // ── Redirect guard ─────────────────────────────────────
     redirect: (context, state) {
       final status = authProvider.status;
       final user   = authProvider.currentUser;
       final loc    = state.matchedLocation;
 
-      // Still checking auth (cold start)
       if (status == AuthStatus.unknown) return null;
 
-      // Not logged in → force to /login
       if (status == AuthStatus.unauthenticated) {
         return loc == '/login' ? null : '/login';
       }
 
-      // Logged in but face not registered (mahasiswa only)
+      // Mahasiswa belum daftar wajah → paksa ke /register-face
       if (user != null && user.isMahasiswa && !user.isFaceRegistered) {
         if (loc != '/register-face') return '/register-face';
       }
 
-      // Already logged in and on /login → redirect to home by role
+      // Sudah login dan di halaman login → redirect ke home sesuai role
       if (loc == '/login') {
         return user?.isDosen == true ? '/dosen/dashboard' : '/scan';
       }
 
-      // Dosen trying to access mahasiswa routes
+      // Dosen mencoba akses route mahasiswa
       if (user?.isDosen == true && !loc.startsWith('/dosen')) {
         if (['/scan', '/register-face', '/riwayat'].contains(loc)) {
           return '/dosen/dashboard';
         }
       }
 
-      return null; // no redirect
+      return null;
     },
 
     routes: [
@@ -65,7 +63,7 @@ GoRouter createRouter(AuthProvider authProvider) {
         builder: (context, state) => const LoginScreen(),
       ),
 
-      // ── Mahasiswa ────────────────────────────────────────
+      // ── Mahasiswa ─────────────────────────────────────────
       GoRoute(
         path   : '/register-face',
         builder: (context, state) => const RegisterFaceScreen(),
@@ -84,7 +82,7 @@ GoRouter createRouter(AuthProvider authProvider) {
       GoRoute(
         path   : '/hasil',
         builder: (context, state) {
-          final args = state.extra as Map<String, dynamic>;
+          final args = state.extra as Map<String, dynamic>? ?? {};
           return HasilScreen(data: args);
         },
       ),
@@ -93,10 +91,14 @@ GoRouter createRouter(AuthProvider authProvider) {
         builder: (context, state) => const RiwayatScreen(),
       ),
 
-      // ── Dosen ────────────────────────────────────────────
+      // ── Dosen ─────────────────────────────────────────────
       GoRoute(
         path   : '/dosen/dashboard',
-        builder: (context, state) => const DashboardDosen(),
+        builder: (context, state) {
+          // extra bisa berisi Map<String, dynamic> dengan sesi_id
+          final sesiData = state.extra as Map<String, dynamic>?;
+          return DashboardDosen(sesiData: sesiData);
+        },
       ),
       GoRoute(
         path   : '/dosen/buka-sesi',
@@ -105,7 +107,8 @@ GoRouter createRouter(AuthProvider authProvider) {
       GoRoute(
         path   : '/dosen/kode',
         builder: (context, state) {
-          final args = state.extra as Map<String, dynamic>;
+          // extra berisi response dari POST /sesi/buka
+          final args = state.extra as Map<String, dynamic>? ?? {};
           return KodeDisplayScreen(sesiData: args);
         },
       ),
@@ -127,12 +130,12 @@ GoRouter createRouter(AuthProvider authProvider) {
             const Icon(Icons.error_outline, size: 64, color: Colors.red),
             const SizedBox(height: 16),
             Text(
-              'Page not found',
+              'Halaman tidak ditemukan',
               style: Theme.of(context).textTheme.titleLarge,
             ),
             TextButton(
               onPressed: () => context.go('/login'),
-              child: const Text('Go back'),
+              child: const Text('Kembali'),
             ),
           ],
         ),
