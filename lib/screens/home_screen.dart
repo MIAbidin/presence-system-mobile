@@ -1,8 +1,4 @@
 // lib/screens/home_screen.dart
-// Halaman beranda mahasiswa — menampilkan ringkasan kehadiran,
-// banner sesi aktif, dan jadwal hari ini.
-// Memanggil endpoint: GET /mahasiswa/home-summary
-
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -15,7 +11,6 @@ import 'package:presensi_app/models/jadwal.dart';
 import 'package:presensi_app/providers/auth_provider.dart';
 import 'package:presensi_app/widgets/bottom_nav.dart';
 
-// ─── Konstanta warna tema ─────────────────────────────────────
 const _kNavy      = Color(0xFF1E3A5F);
 const _kNavyLight = Color(0xFF2A5298);
 const _kAccent    = Color(0xFF00BFA5);
@@ -23,109 +18,98 @@ const _kWarning   = Color(0xFFFFA726);
 const _kDanger    = Color(0xFFEF5350);
 const _kBgLight   = Color(0xFFF5F7FA);
 
-// ─── Model HomeSummary (response GET /mahasiswa/home-summary) ─
+// ─── Models ──────────────────────────────────────────────────
 
-class HomeSummaryModel {
-  final String         namaMahasiswa;
-  final String         nim;
-  final String         programStudi;
-  final double         persentaseKeseluruhan; // 0.0 – 100.0
-  final int            totalHadir;
-  final int            totalSesi;
-  final List<StatMatakuliah> statPerMk;
-  final List<JadwalModel>    jadwalHariIni;
-  final SesiAktifInfo?       sesiAktif; // null jika tidak ada
-
-  const HomeSummaryModel({
-    required this.namaMahasiswa,
-    required this.nim,
-    required this.programStudi,
-    required this.persentaseKeseluruhan,
-    required this.totalHadir,
-    required this.totalSesi,
-    required this.statPerMk,
-    required this.jadwalHariIni,
-    this.sesiAktif,
-  });
-
-  factory HomeSummaryModel.fromJson(Map<String, dynamic> json) {
-    return HomeSummaryModel(
-      namaMahasiswa : json['nama_mahasiswa'] ?? '',
-      nim           : json['nim'] ?? '',
-      programStudi  : json['program_studi'] ?? '',
-      persentaseKeseluruhan :
-          (json['persentase_keseluruhan'] ?? 0).toDouble(),
-      totalHadir : json['total_hadir'] ?? 0,
-      totalSesi  : json['total_sesi'] ?? 0,
-      statPerMk : (json['stat_per_mk'] as List<dynamic>? ?? [])
-        .map((e) => StatMatakuliah.fromJson(e as Map<String, dynamic>))
-        .toList(),
-      jadwalHariIni : (json['jadwal_hari_ini'] as List<dynamic>? ?? [])
-        .map((e) => JadwalModel.fromJson(e as Map<String, dynamic>))
-        .toList(),
-      sesiAktif             : json['sesi_aktif'] != null
-          ? SesiAktifInfo.fromJson(json['sesi_aktif'] as Map<String, dynamic>)
-          : null,
-    );
-  }
-}
-
-class StatMatakuliah {
-  final String matakuliahId;
-  final String kode;
-  final String nama;
-  final double persentase;
+class StatKehadiran {
+  final int    totalPertemuan;
   final int    hadir;
-  final int    total;
+  final int    terlambat;
+  final int    absen;
+  final int    hadirEfektif;
+  final double persentase;
 
-  const StatMatakuliah({
-    required this.matakuliahId,
-    required this.kode,
-    required this.nama,
-    required this.persentase,
+  const StatKehadiran({
+    required this.totalPertemuan,
     required this.hadir,
-    required this.total,
+    required this.terlambat,
+    required this.absen,
+    required this.hadirEfektif,
+    required this.persentase,
   });
 
-  factory StatMatakuliah.fromJson(Map<String, dynamic> json) => StatMatakuliah(
-    matakuliahId: json['matakuliah_id'] ?? '',
-    kode        : json['kode'] ?? '',
-    nama        : json['nama'] ?? '',
-    persentase  : (json['persentase'] ?? 0).toDouble(),
-    hadir       : json['hadir'] ?? 0,
-    total       : json['total'] ?? 0,
+  factory StatKehadiran.fromJson(Map<String, dynamic> json) => StatKehadiran(
+    totalPertemuan: json['total_pertemuan'] as int? ?? 0,
+    hadir         : json['hadir']           as int? ?? 0,
+    terlambat     : json['terlambat']       as int? ?? 0,
+    absen         : json['absen']           as int? ?? 0,
+    hadirEfektif  : json['hadir_efektif']   as int? ?? 0,
+    persentase    : (json['persentase'] as num?)?.toDouble() ?? 0.0,
   );
 }
 
 class SesiAktifInfo {
-  final String sesiId;
-  final String matakuliahNama;
-  final String mode;          // 'offline' | 'online'
-  final String? ruangan;
-  final DateTime waktuBuka;
-  final DateTime? kodeExpireAt;
+  final String  sesiId;
+  final String  matakuliahNama;
+  final String  mode;
+  final int?    detikTersisa;
+  final int     pertemuanKe;
 
   const SesiAktifInfo({
     required this.sesiId,
     required this.matakuliahNama,
     required this.mode,
-    this.ruangan,
-    required this.waktuBuka,
-    this.kodeExpireAt,
+    this.detikTersisa,
+    required this.pertemuanKe,
   });
 
   factory SesiAktifInfo.fromJson(Map<String, dynamic> json) => SesiAktifInfo(
-    sesiId          : json['sesi_id']           as String,
-    matakuliahNama  : json['matakuliah_nama']    as String,
-    mode            : json['mode']               as String,
-    ruangan         : json['ruangan']            as String?,
-    waktuBuka       : DateTime.parse(json['waktu_buka'] as String),
-    kodeExpireAt    : json['kode_expire_at'] != null
-        ? DateTime.parse(json['kode_expire_at'] as String)
-        : null,
+    sesiId        : json['sesi_id']          as String? ?? '',
+    matakuliahNama: json['matakuliah_nama']   as String? ?? '',
+    mode          : json['mode']              as String? ?? '',
+    detikTersisa  : json['detik_tersisa']     as int?,
+    pertemuanKe   : json['pertemuan_ke']      as int? ?? 0,
   );
 
   bool get isOnline => mode == 'online';
+}
+
+class HomeSummaryModel {
+  final String           namaMahasiswa;
+  final String           nim;
+  final bool             isFaceRegistered;
+  final StatKehadiran    statSemester;
+  final int              presensiHariIni;
+  final List<JadwalModel> jadwalHariIni;
+  final List<SesiAktifInfo> sesiAktif;
+
+  const HomeSummaryModel({
+    required this.namaMahasiswa,
+    required this.nim,
+    required this.isFaceRegistered,
+    required this.statSemester,
+    required this.presensiHariIni,
+    required this.jadwalHariIni,
+    required this.sesiAktif,
+  });
+
+  /// Parse dari response GET /mahasiswa/home-summary
+  /// Backend response sesuai HomeSummaryResponse di app/schemas/home.py
+  factory HomeSummaryModel.fromJson(Map<String, dynamic> json) {
+    return HomeSummaryModel(
+      namaMahasiswa   : json['nama_mahasiswa']    as String? ?? '',
+      nim             : json['nim']               as String? ?? '',
+      isFaceRegistered: json['is_face_registered'] as bool? ?? false,
+      statSemester    : StatKehadiran.fromJson(
+          (json['stat_semester'] as Map<String, dynamic>?) ?? {}),
+      presensiHariIni : json['presensi_hari_ini'] as int? ?? 0,
+      jadwalHariIni   : ((json['jadwal_hari_ini'] as List<dynamic>?) ?? [])
+          .map((e) => JadwalModel.fromJson(e as Map<String, dynamic>))
+          .toList(),
+      sesiAktif       : ((json['sesi_aktif'] as List<dynamic>?) ?? [])
+          .map((e) => SesiAktifInfo.fromJson(e as Map<String, dynamic>))
+          .toList(),
+    );
+  }
 }
 
 // ─── HomeScreen ───────────────────────────────────────────────
@@ -139,13 +123,11 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen>
     with AutomaticKeepAliveClientMixin {
-  // AutomaticKeepAliveClientMixin: state tidak di-reset saat berpindah tab
 
   HomeSummaryModel? _summary;
   bool   _isLoading = true;
   String? _error;
 
-  // Timer untuk sisa waktu sesi aktif
   Timer?    _countdownTimer;
   Duration? _sisaWaktu;
 
@@ -164,8 +146,6 @@ class _HomeScreenState extends State<HomeScreen>
     super.dispose();
   }
 
-  // ── Fetch data dari API ──────────────────────────────────────
-
   Future<void> _fetchSummary() async {
     setState(() {
       _isLoading = true;
@@ -173,11 +153,11 @@ class _HomeScreenState extends State<HomeScreen>
     });
 
     try {
-      final client = context.read<ApiClient>();
-      final response = await client.get('/mahasiswa/home-summary');
+      // ApiClient().get() returns http.Response — we must decode body manually
+      final response = await ApiClient().get('/mahasiswa/home-summary');
 
       final Map<String, dynamic> json =
-          jsonDecode(response.body);
+          jsonDecode(response.body) as Map<String, dynamic>;
 
       final summary = HomeSummaryModel.fromJson(json);
 
@@ -187,12 +167,16 @@ class _HomeScreenState extends State<HomeScreen>
         _isLoading = false;
       });
 
-      // Mulai countdown jika ada sesi aktif online dengan expire
-      if (summary.sesiAktif?.kodeExpireAt != null) {
-        _startCountdown(summary.sesiAktif!.kodeExpireAt!);
+      // Start countdown if there's an active online session with time remaining
+      if (summary.sesiAktif.isNotEmpty) {
+        final onlineSesi = summary.sesiAktif
+            .where((s) => s.isOnline && s.detikTersisa != null)
+            .toList();
+        if (onlineSesi.isNotEmpty) {
+          _startCountdown(onlineSesi.first.detikTersisa!);
+        }
       }
     } catch (e) {
-      print("ERROR HOME: $e");
       if (!mounted) return;
       setState(() {
         _error     = e.toString();
@@ -201,30 +185,24 @@ class _HomeScreenState extends State<HomeScreen>
     }
   }
 
-  void _startCountdown(DateTime expireAt) {
+  void _startCountdown(int detikAwal) {
+    _sisaWaktu = Duration(seconds: detikAwal);
     _countdownTimer?.cancel();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
-      final sisa = expireAt.difference(DateTime.now());
       if (!mounted) return;
       setState(() {
-        _sisaWaktu = sisa.isNegative ? Duration.zero : sisa;
+        if (_sisaWaktu != null && _sisaWaktu!.inSeconds > 0) {
+          _sisaWaktu = _sisaWaktu! - const Duration(seconds: 1);
+        } else {
+          _sisaWaktu = Duration.zero;
+          _countdownTimer?.cancel();
+          _fetchSummary();
+        }
       });
-      if (sisa.isNegative) {
-        _countdownTimer?.cancel();
-        _fetchSummary(); // refresh setelah sesi expired
-      }
     });
   }
 
-  // ── Navigate ke tab Scan ────────────────────────────────────
-
-  void _goToScan() {
-    context.go('/scan');
-  }
-
-  // ─────────────────────────────────────────────────────────────
-  // BUILD
-  // ─────────────────────────────────────────────────────────────
+  void _goToScan() => context.go('/scan');
 
   @override
   Widget build(BuildContext context) {
@@ -247,45 +225,32 @@ class _HomeScreenState extends State<HomeScreen>
     final s = _summary!;
     return CustomScrollView(
       slivers: [
-        // ── App bar dengan sapaan ──────────────────────────────
         _buildSliverAppBar(s),
-
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           sliver : SliverList(
             delegate: SliverChildListDelegate([
               const SizedBox(height: 20),
 
-              // ── Banner sesi aktif (jika ada) ─────────────────
-              if (s.sesiAktif != null) ...[
+              // Banner sesi aktif
+              if (s.sesiAktif.isNotEmpty) ...[
                 _SesiAktifBanner(
-                  sesi      : s.sesiAktif!,
+                  sesi      : s.sesiAktif.first,
                   sisaWaktu : _sisaWaktu,
                   onPresensi: _goToScan,
                 ),
                 const SizedBox(height: 20),
               ],
 
-              // ── Kartu statistik utama ─────────────────────────
+              // Kartu statistik
               _StatUtamaCard(
-                persentase : s.persentaseKeseluruhan,
-                totalHadir : s.totalHadir,
-                totalSesi  : s.totalSesi,
+                persentase: s.statSemester.persentase,
+                totalHadir: s.statSemester.hadir + s.statSemester.terlambat,
+                totalSesi : s.statSemester.totalPertemuan,
               ),
               const SizedBox(height: 20),
 
-              // ── Statistik per matakuliah ─────────────────────
-              if (s.statPerMk.isNotEmpty) ...[
-                _SectionHeader(
-                  title   : 'Kehadiran per Matakuliah',
-                  subtitle: 'Semester ini',
-                ),
-                const SizedBox(height: 12),
-                ...s.statPerMk.map((mk) => _MkStatCard(stat: mk)),
-                const SizedBox(height: 20),
-              ],
-
-              // ── Jadwal hari ini ──────────────────────────────
+              // Jadwal hari ini
               _SectionHeader(
                 title   : 'Jadwal Hari Ini',
                 subtitle: DateFormat('EEEE, d MMMM yyyy', 'id_ID')
@@ -296,8 +261,8 @@ class _HomeScreenState extends State<HomeScreen>
                 const _EmptyJadwal()
               else
                 ...s.jadwalHariIni.map((j) => _JadwalCard(
-                  jadwal  : j,
-                  onScan  : _goToScan,
+                  jadwal : j,
+                  onScan : _goToScan,
                 )),
             ]),
           ),
@@ -306,11 +271,9 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  // ── SliverAppBar dengan gradient ──────────────────────────────
-
   Widget _buildSliverAppBar(HomeSummaryModel s) {
-    final namaDepan = s.namaMahasiswa.split(' ').first;
-    final jamSekarang = DateTime.now().hour;
+    final namaDepan    = s.namaMahasiswa.split(' ').first;
+    final jamSekarang  = DateTime.now().hour;
     final sapaan = jamSekarang < 11
         ? 'Selamat Pagi'
         : jamSekarang < 15
@@ -337,60 +300,35 @@ class _HomeScreenState extends State<HomeScreen>
           child: SafeArea(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-              child  : Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              sapaan,
-                              style: const TextStyle(
-                                color   : Colors.white70,
-                                fontSize: 13,
-                              ),
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              namaDepan,
-                              style: const TextStyle(
-                                color     : Colors.white,
-                                fontSize  : 22,
-                                fontWeight: FontWeight.bold,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                            const SizedBox(height: 2),
-                            Text(
-                              '${s.nim}  ·  ${s.programStudi}',
-                              style: const TextStyle(
-                                color   : Colors.white60,
-                                fontSize: 12,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ],
-                        ),
-                      ),
-                      // Avatar inisial
-                      CircleAvatar(
-                        radius         : 28,
-                        backgroundColor: Colors.white.withOpacity(0.2),
-                        child          : Text(
-                          s.namaMahasiswa.isNotEmpty
-                              ? s.namaMahasiswa[0].toUpperCase()
-                              : '?',
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment : MainAxisAlignment.center,
+                      children: [
+                        Text(sapaan,
+                          style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                        const SizedBox(height: 4),
+                        Text(namaDepan,
                           style: const TextStyle(
-                            color     : Colors.white,
-                            fontSize  : 22,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
+                            color: Colors.white, fontSize: 22,
+                            fontWeight: FontWeight.bold),
+                          overflow: TextOverflow.ellipsis),
+                        const SizedBox(height: 2),
+                        Text(s.nim,
+                          style: const TextStyle(color: Colors.white60, fontSize: 12)),
+                      ],
+                    ),
+                  ),
+                  CircleAvatar(
+                    radius         : 28,
+                    backgroundColor: Colors.white.withOpacity(0.2),
+                    child          : Text(
+                      s.namaMahasiswa.isNotEmpty ? s.namaMahasiswa[0].toUpperCase() : '?',
+                      style: const TextStyle(
+                        color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
+                    ),
                   ),
                 ],
               ),
@@ -398,17 +336,14 @@ class _HomeScreenState extends State<HomeScreen>
           ),
         ),
       ),
-      // Saat di-collapse, tampilkan judul singkat
-      title: const Text(
-        'Beranda',
-        style: TextStyle(color: Colors.white, fontSize: 18),
-      ),
+      title: const Text('Beranda',
+          style: TextStyle(color: Colors.white, fontSize: 18)),
       titleSpacing: 20,
     );
   }
 }
 
-// ─── Sub-widget: Banner sesi aktif ────────────────────────────
+// ─── Sub-widgets ──────────────────────────────────────────────
 
 class _SesiAktifBanner extends StatelessWidget {
   final SesiAktifInfo sesi;
@@ -431,9 +366,7 @@ class _SesiAktifBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        gradient    : const LinearGradient(
-          colors: [Color(0xFF00897B), _kAccent],
-        ),
+        gradient    : const LinearGradient(colors: [Color(0xFF00897B), _kAccent]),
         borderRadius: BorderRadius.circular(16),
         boxShadow   : [
           BoxShadow(
@@ -448,30 +381,24 @@ class _SesiAktifBanner extends StatelessWidget {
         child  : Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Header
             Row(
               children: [
                 Container(
-                  padding     : const EdgeInsets.symmetric(
-                      horizontal: 10, vertical: 4),
-                  decoration  : BoxDecoration(
-                    color       : Colors.white.withOpacity(0.2),
+                  padding    : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  decoration : BoxDecoration(
+                    color      : Colors.white.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children    : [
-                      const Icon(Icons.circle,
-                          color: Colors.white, size: 8),
+                      const Icon(Icons.circle, color: Colors.white, size: 8),
                       const SizedBox(width: 6),
                       Text(
                         'SESI ${sesi.isOnline ? 'ONLINE' : 'OFFLINE'} AKTIF',
                         style: const TextStyle(
-                          color     : Colors.white,
-                          fontSize  : 11,
-                          fontWeight: FontWeight.bold,
-                          letterSpacing: 0.5,
-                        ),
+                          color: Colors.white, fontSize: 11,
+                          fontWeight: FontWeight.bold, letterSpacing: 0.5),
                       ),
                     ],
                   ),
@@ -479,42 +406,20 @@ class _SesiAktifBanner extends StatelessWidget {
               ],
             ),
             const SizedBox(height: 10),
-
-            // Nama matakuliah
-            Text(
-              sesi.matakuliahNama,
+            Text(sesi.matakuliahNama,
               style: const TextStyle(
-                color     : Colors.white,
-                fontSize  : 17,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            if (sesi.ruangan != null)
-              Text(
-                sesi.ruangan!,
-                style: const TextStyle(
-                  color  : Colors.white70,
-                  fontSize: 13,
-                ),
-              ),
-
+                color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
+            Text('Pertemuan ke-${sesi.pertemuanKe}',
+              style: const TextStyle(color: Colors.white70, fontSize: 13)),
             const SizedBox(height: 12),
-
-            // Countdown + tombol
             Row(
               children: [
-                if (sisaWaktu != null) ...[
-                  const Icon(Icons.timer_outlined,
-                      color: Colors.white70, size: 16),
+                if (sisaWaktu != null && sesi.isOnline) ...[
+                  const Icon(Icons.timer_outlined, color: Colors.white70, size: 16),
                   const SizedBox(width: 6),
-                  Text(
-                    'Sisa ${_formatDurasi(sisaWaktu!)}',
+                  Text('Sisa ${_formatDurasi(sisaWaktu!)}',
                     style: const TextStyle(
-                      color  : Colors.white,
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
+                      color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
                   const Spacer(),
                 ],
                 ElevatedButton.icon(
@@ -525,15 +430,10 @@ class _SesiAktifBanner extends StatelessWidget {
                     backgroundColor: Colors.white,
                     foregroundColor: const Color(0xFF00897B),
                     elevation      : 0,
-                    padding        : const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 10),
+                    padding        : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                     shape          : RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    textStyle: const TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize  : 13,
-                    ),
+                      borderRadius: BorderRadius.circular(10)),
+                    textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                   ),
                 ),
               ],
@@ -544,8 +444,6 @@ class _SesiAktifBanner extends StatelessWidget {
     );
   }
 }
-
-// ─── Sub-widget: Kartu statistik utama ────────────────────────
 
 class _StatUtamaCard extends StatelessWidget {
   final double persentase;
@@ -567,21 +465,18 @@ class _StatUtamaCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding     : const EdgeInsets.all(20),
-      decoration  : BoxDecoration(
-        color       : Colors.white,
+      padding    : const EdgeInsets.all(20),
+      decoration : BoxDecoration(
+        color      : Colors.white,
         borderRadius: BorderRadius.circular(16),
-        boxShadow   : [
+        boxShadow  : [
           BoxShadow(
             color     : Colors.black.withOpacity(0.06),
-            blurRadius: 12,
-            offset    : const Offset(0, 4),
-          ),
+            blurRadius: 12, offset: const Offset(0, 4)),
         ],
       ),
       child: Row(
         children: [
-          // Lingkaran progres
           SizedBox(
             width : 90,
             height: 90,
@@ -589,7 +484,7 @@ class _StatUtamaCard extends StatelessWidget {
               alignment: Alignment.center,
               children : [
                 CircularProgressIndicator(
-                  value          : persentase / 100,
+                  value          : (persentase / 100).clamp(0.0, 1.0),
                   strokeWidth    : 8,
                   backgroundColor: Colors.grey.shade100,
                   valueColor     : AlwaysStoppedAnimation(_warnaRing),
@@ -597,21 +492,11 @@ class _StatUtamaCard extends StatelessWidget {
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children    : [
-                    Text(
-                      '${persentase.toStringAsFixed(0)}%',
+                    Text('${persentase.toStringAsFixed(0)}%',
                       style: TextStyle(
-                        color     : _warnaRing,
-                        fontSize  : 20,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    const Text(
-                      'Hadir',
-                      style: TextStyle(
-                        color   : Colors.grey,
-                        fontSize: 11,
-                      ),
-                    ),
+                        color: _warnaRing, fontSize: 20, fontWeight: FontWeight.bold)),
+                    const Text('Hadir',
+                      style: TextStyle(color: Colors.grey, fontSize: 11)),
                   ],
                 ),
               ],
@@ -621,52 +506,46 @@ class _StatUtamaCard extends StatelessWidget {
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
-              children          : [
-                const Text(
-                  'Kehadiran Semester Ini',
+              children: [
+                const Text('Kehadiran Semester Ini',
                   style: TextStyle(
-                    color     : _kNavy,
-                    fontSize  : 15,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
+                    color: _kNavy, fontSize: 15, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 10),
-                _StatRow(
-                  icon : Icons.check_circle_outline,
-                  color: _kAccent,
-                  label: 'Total Hadir',
-                  nilai: '$totalHadir Pertemuan',
-                ),
+                Row(children: [
+                  Icon(Icons.check_circle_outline, color: _kAccent, size: 16),
+                  const SizedBox(width: 6),
+                  Text('Hadir Efektif  ',
+                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  Text('$totalHadir sesi',
+                    style: const TextStyle(
+                      color: _kNavy, fontSize: 12, fontWeight: FontWeight.w600)),
+                ]),
                 const SizedBox(height: 6),
-                _StatRow(
-                  icon : Icons.event_note_outlined,
-                  color: _kNavyLight,
-                  label: 'Total Sesi',
-                  nilai: '$totalSesi Pertemuan',
-                ),
+                Row(children: [
+                  Icon(Icons.event_note_outlined, color: _kNavyLight, size: 16),
+                  const SizedBox(width: 6),
+                  Text('Total Sesi  ',
+                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                  Text('$totalSesi sesi',
+                    style: const TextStyle(
+                      color: _kNavy, fontSize: 12, fontWeight: FontWeight.w600)),
+                ]),
                 if (persentase < 75) ...[
                   const SizedBox(height: 8),
                   Container(
-                    padding     : const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 4),
-                    decoration  : BoxDecoration(
-                      color       : _kWarning.withOpacity(0.1),
+                    padding    : const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    decoration : BoxDecoration(
+                      color      : _kWarning.withOpacity(0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children    : [
-                        Icon(Icons.warning_amber_rounded,
-                            color: _kWarning, size: 14),
+                        Icon(Icons.warning_amber_rounded, color: _kWarning, size: 14),
                         const SizedBox(width: 4),
-                        Text(
-                          'Kehadiran di bawah 75%',
+                        Text('Kehadiran di bawah 75%',
                           style: TextStyle(
-                            color   : _kWarning,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
+                            color: _kWarning, fontSize: 11, fontWeight: FontWeight.w600)),
                       ],
                     ),
                   ),
@@ -680,138 +559,8 @@ class _StatUtamaCard extends StatelessWidget {
   }
 }
 
-class _StatRow extends StatelessWidget {
-  final IconData icon;
-  final Color    color;
-  final String   label;
-  final String   nilai;
-
-  const _StatRow({
-    required this.icon,
-    required this.color,
-    required this.label,
-    required this.nilai,
-  });
-
-  @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Icon(icon, color: color, size: 16),
-      const SizedBox(width: 6),
-      Text(
-        label,
-        style: const TextStyle(color: Colors.grey, fontSize: 12),
-      ),
-      const SizedBox(width: 4),
-      Text(
-        nilai,
-        style: const TextStyle(
-          color     : _kNavy,
-          fontSize  : 12,
-          fontWeight: FontWeight.w600,
-        ),
-      ),
-    ],
-  );
-}
-
-// ─── Sub-widget: Kartu statistik per matakuliah ───────────────
-
-class _MkStatCard extends StatelessWidget {
-  final StatMatakuliah stat;
-
-  const _MkStatCard({required this.stat});
-
-  Color get _barColor {
-    if (stat.persentase >= 75) return _kAccent;
-    if (stat.persentase >= 60) return _kWarning;
-    return _kDanger;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      margin     : const EdgeInsets.only(bottom: 10),
-      padding    : const EdgeInsets.all(14),
-      decoration : BoxDecoration(
-        color      : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        boxShadow  : [
-          BoxShadow(
-            color     : Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset    : const Offset(0, 2),
-          ),
-        ],
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children          : [
-          Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children          : [
-                    Text(
-                      stat.nama,
-                      style: const TextStyle(
-                        color     : _kNavy,
-                        fontSize  : 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                      maxLines : 1,
-                      overflow : TextOverflow.ellipsis,
-                    ),
-                    Text(
-                      stat.kode,
-                      style: const TextStyle(
-                        color  : Colors.grey,
-                        fontSize: 11,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Text(
-                '${stat.hadir}/${stat.total}',
-                style: TextStyle(
-                  color     : _barColor,
-                  fontSize  : 13,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          // Progress bar
-          ClipRRect(
-            borderRadius: BorderRadius.circular(4),
-            child       : LinearProgressIndicator(
-              value          : stat.persentase / 100,
-              minHeight      : 6,
-              backgroundColor: Colors.grey.shade100,
-              valueColor     : AlwaysStoppedAnimation(_barColor),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            '${stat.persentase.toStringAsFixed(1)}% kehadiran',
-            style: TextStyle(
-              color  : _barColor,
-              fontSize: 11,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─── Sub-widget: Kartu jadwal hari ini ────────────────────────
-
 class _JadwalCard extends StatelessWidget {
-  final JadwalModel jadwal;
+  final JadwalModel  jadwal;
   final VoidCallback onScan;
 
   const _JadwalCard({required this.jadwal, required this.onScan});
@@ -828,10 +577,9 @@ class _JadwalCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final color = _statusColor();
-
     return Container(
-      margin     : const EdgeInsets.only(bottom: 10),
-      decoration : BoxDecoration(
+      margin    : const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
         color      : Colors.white,
         borderRadius: BorderRadius.circular(12),
         border     : jadwal.adaSesiAktif && !jadwal.sudahPresensi
@@ -840,114 +588,70 @@ class _JadwalCard extends StatelessWidget {
         boxShadow  : [
           BoxShadow(
             color     : Colors.black.withOpacity(0.04),
-            blurRadius: 8,
-            offset    : const Offset(0, 2),
-          ),
+            blurRadius: 8, offset: const Offset(0, 2)),
         ],
       ),
       child: Padding(
         padding: const EdgeInsets.all(14),
-        child  : Row(
+        child: Row(
           children: [
-            // Garis kiri berwarna
             Container(
-              width       : 4,
-              height      : 52,
-              decoration  : BoxDecoration(
-                color       : color,
-                borderRadius: BorderRadius.circular(2),
-              ),
+              width      : 4,
+              height     : 52,
+              decoration : BoxDecoration(
+                color      : color, borderRadius: BorderRadius.circular(2)),
             ),
             const SizedBox(width: 12),
-
-            // Info jadwal
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children          : [
-                  Text(
-                    jadwal.nama,
+                children: [
+                  Text(jadwal.nama,
                     style: const TextStyle(
-                      color     : _kNavy,
-                      fontSize  : 14,
-                      fontWeight: FontWeight.bold,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                      color: _kNavy, fontSize: 14, fontWeight: FontWeight.bold),
+                    overflow: TextOverflow.ellipsis),
                   const SizedBox(height: 4),
-                  Row(
-                    children: [
-                      const Icon(Icons.access_time,
-                          size: 12, color: Colors.grey),
+                  Row(children: [
+                    const Icon(Icons.access_time, size: 12, color: Colors.grey),
+                    const SizedBox(width: 4),
+                    Text(jadwal.labelJam,
+                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
+                    if (jadwal.ruangan != null) ...[
+                      const SizedBox(width: 10),
+                      const Icon(Icons.room_outlined, size: 12, color: Colors.grey),
                       const SizedBox(width: 4),
-                      Text(
-                        jadwal.labelJam,
-                        style: const TextStyle(
-                          color  : Colors.grey,
-                          fontSize: 12,
-                        ),
+                      Expanded(
+                        child: Text(jadwal.ruangan!,
+                          style: const TextStyle(color: Colors.grey, fontSize: 12),
+                          overflow: TextOverflow.ellipsis),
                       ),
-                      if (jadwal.ruangan != null) ...[
-                        const SizedBox(width: 10),
-                        const Icon(Icons.room_outlined,
-                            size: 12, color: Colors.grey),
-                        const SizedBox(width: 4),
-                        Expanded(
-                          child: Text(
-                            jadwal.ruangan!,
-                            style: const TextStyle(
-                              color  : Colors.grey,
-                              fontSize: 12,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                      ],
                     ],
-                  ),
+                  ]),
                 ],
               ),
             ),
-
             const SizedBox(width: 10),
-
-            // Badge status / tombol presensi
             if (jadwal.adaSesiAktif && !jadwal.sudahPresensi)
               GestureDetector(
-                onTap  : onScan,
-                child  : Container(
-                  padding     : const EdgeInsets.symmetric(
-                      horizontal: 12, vertical: 8),
-                  decoration  : BoxDecoration(
-                    color       : _kNavy,
-                    borderRadius: BorderRadius.circular(10),
-                  ),
-                  child: const Text(
-                    'Presensi',
+                onTap : onScan,
+                child : Container(
+                  padding    : const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration : BoxDecoration(
+                    color      : _kNavy, borderRadius: BorderRadius.circular(10)),
+                  child: const Text('Presensi',
                     style: TextStyle(
-                      color     : Colors.white,
-                      fontSize  : 12,
-                      fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                      color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
                 ),
               )
             else
               Container(
-                padding     : const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 6),
-                decoration  : BoxDecoration(
-                  color       : color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  jadwal.labelStatus,
+                padding    : const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration : BoxDecoration(
+                  color      : color.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8)),
+                child: Text(jadwal.labelStatus,
                   style: TextStyle(
-                    color     : color,
-                    fontSize  : 12,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                    color: color, fontSize: 12, fontWeight: FontWeight.w600)),
               ),
           ],
         ),
@@ -956,56 +660,37 @@ class _JadwalCard extends StatelessWidget {
   }
 }
 
-// ─── Sub-widget: Helpers ──────────────────────────────────────
-
 class _SectionHeader extends StatelessWidget {
   final String title;
   final String subtitle;
-
   const _SectionHeader({required this.title, required this.subtitle});
 
   @override
   Widget build(BuildContext context) => Row(
     mainAxisAlignment: MainAxisAlignment.spaceBetween,
     children         : [
-      Text(
-        title,
+      Text(title,
         style: const TextStyle(
-          color     : _kNavy,
-          fontSize  : 15,
-          fontWeight: FontWeight.bold,
-        ),
-      ),
-      Text(
-        subtitle,
-        style: const TextStyle(
-          color  : Colors.grey,
-          fontSize: 12,
-        ),
-      ),
+          color: _kNavy, fontSize: 15, fontWeight: FontWeight.bold)),
+      Text(subtitle,
+        style: const TextStyle(color: Colors.grey, fontSize: 12)),
     ],
   );
 }
 
 class _EmptyJadwal extends StatelessWidget {
   const _EmptyJadwal();
-
   @override
   Widget build(BuildContext context) => Container(
     padding    : const EdgeInsets.all(24),
     decoration : BoxDecoration(
-      color      : Colors.white,
-      borderRadius: BorderRadius.circular(12),
-    ),
+      color      : Colors.white, borderRadius: BorderRadius.circular(12)),
     child: Column(
       children: [
-        Icon(Icons.event_available_outlined,
-            size: 48, color: Colors.grey.shade300),
+        Icon(Icons.event_available_outlined, size: 48, color: Colors.grey.shade300),
         const SizedBox(height: 12),
-        const Text(
-          'Tidak ada jadwal hari ini',
-          style: TextStyle(color: Colors.grey, fontSize: 14),
-        ),
+        const Text('Tidak ada jadwal hari ini',
+          style: TextStyle(color: Colors.grey, fontSize: 14)),
       ],
     ),
   );
@@ -1013,7 +698,6 @@ class _EmptyJadwal extends StatelessWidget {
 
 class _LoadingView extends StatelessWidget {
   const _LoadingView();
-
   @override
   Widget build(BuildContext context) => const Center(
     child: Column(
@@ -1021,10 +705,7 @@ class _LoadingView extends StatelessWidget {
       children         : [
         CircularProgressIndicator(color: _kNavy),
         SizedBox(height: 16),
-        Text(
-          'Memuat data...',
-          style: TextStyle(color: Colors.grey),
-        ),
+        Text('Memuat data...', style: TextStyle(color: Colors.grey)),
       ],
     ),
   );
@@ -1033,7 +714,6 @@ class _LoadingView extends StatelessWidget {
 class _ErrorView extends StatelessWidget {
   final String       error;
   final VoidCallback onRetry;
-
   const _ErrorView({required this.error, required this.onRetry});
 
   @override
@@ -1042,35 +722,24 @@ class _ErrorView extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
-          mainAxisSize: MainAxisSize.min, // ⬅️ penting
-          mainAxisAlignment: MainAxisAlignment.center,
+          mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.wifi_off_rounded,
-                size: 64, color: Colors.grey.shade300),
+            Icon(Icons.wifi_off_rounded, size: 64, color: Colors.grey.shade300),
             const SizedBox(height: 16),
-            const Text(
-              'Gagal memuat data',
+            const Text('Gagal memuat data',
               style: TextStyle(
-                color: _kNavy,
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
+                color: _kNavy, fontSize: 16, fontWeight: FontWeight.bold)),
             const SizedBox(height: 8),
-            Text(
-              error,
+            Text(error,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey, fontSize: 13),
-            ),
+              style: const TextStyle(color: Colors.grey, fontSize: 13)),
             const SizedBox(height: 20),
             ElevatedButton.icon(
               onPressed: onRetry,
-              icon: const Icon(Icons.refresh),
+              icon : const Icon(Icons.refresh),
               label: const Text('Coba Lagi'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: _kNavy,
-                foregroundColor: Colors.white,
-              ),
+                backgroundColor: _kNavy, foregroundColor: Colors.white),
             ),
           ],
         ),

@@ -4,34 +4,29 @@ import 'package:presensi_app/providers/auth_provider.dart';
 import 'package:presensi_app/router.dart';
 import 'package:presensi_app/core/api_client.dart';
 
-// ── Firebase ─────────────────────────────────────────────
+// Firebase
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'firebase_options.dart';
 
+// Intl locale
+import 'package:intl/date_symbol_data_local.dart';
 
-// ── Background handler (WAJIB top-level) ────────────────
 @pragma('vm:entry-point')
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   debugPrint('📬 Background message: ${message.messageId}');
 }
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  // ── INIT FIREBASE ─────────────────────────────────────
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // Inisialisasi locale Indonesia untuk intl/DateFormat
+  await initializeDateFormatting('id_ID', null);
 
-  // ── BACKGROUND NOTIF ──────────────────────────────────
-  FirebaseMessaging.onBackgroundMessage(
-    _firebaseMessagingBackgroundHandler,
-  );
+  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+
+  FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
 
   runApp(const PresensiApp());
 }
@@ -43,26 +38,20 @@ class PresensiApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MultiProvider(
       providers: [
-        ChangeNotifierProvider(
-          create: (_) => AuthProvider()..checkAuth(),
-        ),
-
-        Provider<ApiClient>(
-          create: (_) => ApiClient(),
-        ),
+        ChangeNotifierProvider(create: (_) => AuthProvider()..checkAuth()),
+        Provider<ApiClient>(create: (_) => ApiClient()),
       ],
       child: Builder(
         builder: (context) {
           final authProvider = context.watch<AuthProvider>();
           final router = createRouter(authProvider);
-
           return MaterialApp.router(
             title: 'Presensi SKS',
             debugShowCheckedModeBanner: false,
             theme: ThemeData(
               colorScheme: ColorScheme.fromSeed(
                 seedColor: const Color(0xFF1E3A5F),
-                primary: const Color(0xFF1E3A5F),
+                primary  : const Color(0xFF1E3A5F),
               ),
               useMaterial3: true,
             ),

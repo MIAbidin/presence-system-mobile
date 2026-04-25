@@ -394,22 +394,6 @@ class _ScanScreenState extends State<ScanScreen> {
         backgroundColor: const Color(0xFF1E3A5F),
         foregroundColor: Colors.white,
         title          : const Text('Presensi Wajah'),
-        actions: [
-          // Tombol logout
-          IconButton(
-            icon    : const Icon(Icons.logout),
-            tooltip : 'Logout',
-            onPressed: () async {
-              await context.read<AuthProvider>().logout();
-            },
-          ),
-          // Riwayat
-          IconButton(
-            icon    : const Icon(Icons.history),
-            tooltip : 'Riwayat',
-            onPressed: () => context.go('/riwayat'),
-          ),
-        ],
       ),
       body: Column(
         children: [

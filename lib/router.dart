@@ -13,6 +13,7 @@ import 'package:presensi_app/screens/kode_sesi_screen.dart';
 import 'package:presensi_app/screens/hasil_screen.dart';
 import 'package:presensi_app/screens/riwayat_screen.dart';
 import 'package:presensi_app/screens/home_screen.dart';
+import 'package:presensi_app/widgets/bottom_nav.dart';
 
 // Screens — Dosen
 import 'package:presensi_app/screens/dosen/dashboard_dosen.dart';
@@ -25,33 +26,35 @@ GoRouter createRouter(AuthProvider authProvider) {
     refreshListenable: authProvider,
     initialLocation  : '/login',
 
-    // ── Redirect guard ─────────────────────────────────────
     redirect: (context, state) {
       final status = authProvider.status;
       final user   = authProvider.currentUser;
       final loc    = state.matchedLocation;
 
+      // Still checking auth state — don't redirect yet
       if (status == AuthStatus.unknown) return null;
 
+      // Not logged in → go to login (unless already there)
       if (status == AuthStatus.unauthenticated) {
         return loc == '/login' ? null : '/login';
       }
 
-      // Mahasiswa belum daftar wajah → paksa ke /register-face
+      // Logged in but face not registered → force to register-face
+      // (except if already going there)
       if (user != null && user.isMahasiswa && !user.isFaceRegistered) {
         if (loc != '/register-face') return '/register-face';
+        return null;
       }
 
-      // Sudah login dan di halaman login → redirect ke home sesuai role
+      // Already logged in and on login page → go to home by role
       if (loc == '/login') {
         return user?.isDosen == true ? '/dosen/dashboard' : '/home';
       }
 
-      // Dosen mencoba akses route mahasiswa
-      if (user?.isDosen == true && !loc.startsWith('/dosen')) {
-        if (['/scan', '/register-face', '/riwayat'].contains(loc)) {
-          return '/dosen/dashboard';
-        }
+      // Dosen trying to access mahasiswa-only routes
+      if (user?.isDosen == true) {
+        const mahasiswaRoutes = ['/home', '/scan', '/register-face', '/riwayat'];
+        if (mahasiswaRoutes.contains(loc)) return '/dosen/dashboard';
       }
 
       return null;
@@ -64,18 +67,32 @@ GoRouter createRouter(AuthProvider authProvider) {
         builder: (context, state) => const LoginScreen(),
       ),
 
-      // ── Mahasiswa ─────────────────────────────────────────
+      // ── Mahasiswa: Main tab navigation shell ──────────────
       GoRoute(
         path   : '/home',
-        builder: (context, state) => const HomeScreen(),
+        builder: (context, state) => const MainScreen(initialIndex: 0),
       ),
       GoRoute(
-        path   : '/register-face',
-        builder: (context, state) => const RegisterFaceScreen(),
+        path   : '/jadwal',
+        builder: (context, state) => const MainScreen(initialIndex: 1),
       ),
       GoRoute(
         path   : '/scan',
-        builder: (context, state) => const ScanScreen(),
+        builder: (context, state) => const MainScreen(initialIndex: 2),
+      ),
+      GoRoute(
+        path   : '/riwayat',
+        builder: (context, state) => const MainScreen(initialIndex: 3),
+      ),
+      GoRoute(
+        path   : '/profil',
+        builder: (context, state) => const MainScreen(initialIndex: 4),
+      ),
+
+      // ── Mahasiswa: standalone screens ─────────────────────
+      GoRoute(
+        path   : '/register-face',
+        builder: (context, state) => const RegisterFaceScreen(),
       ),
       GoRoute(
         path   : '/kode-sesi',
@@ -91,16 +108,11 @@ GoRouter createRouter(AuthProvider authProvider) {
           return HasilScreen(data: args);
         },
       ),
-      GoRoute(
-        path   : '/riwayat',
-        builder: (context, state) => const RiwayatScreen(),
-      ),
 
       // ── Dosen ─────────────────────────────────────────────
       GoRoute(
         path   : '/dosen/dashboard',
         builder: (context, state) {
-          // extra bisa berisi Map<String, dynamic> dengan sesi_id
           final sesiData = state.extra as Map<String, dynamic>?;
           return DashboardDosen(sesiData: sesiData);
         },
@@ -112,7 +124,6 @@ GoRouter createRouter(AuthProvider authProvider) {
       GoRoute(
         path   : '/dosen/kode',
         builder: (context, state) {
-          // extra berisi response dari POST /sesi/buka
           final args = state.extra as Map<String, dynamic>? ?? {};
           return KodeDisplayScreen(sesiData: args);
         },
@@ -126,7 +137,6 @@ GoRouter createRouter(AuthProvider authProvider) {
       ),
     ],
 
-    // ── Error page ────────────────────────────────────────
     errorBuilder: (context, state) => Scaffold(
       body: Center(
         child: Column(
@@ -135,12 +145,14 @@ GoRouter createRouter(AuthProvider authProvider) {
             const Icon(Icons.error_outline, size: 64, color: Colors.red),
             const SizedBox(height: 16),
             Text(
-              'Halaman tidak ditemukan',
-              style: Theme.of(context).textTheme.titleLarge,
+              'Halaman tidak ditemukan: ${state.matchedLocation}',
+              style: Theme.of(context).textTheme.titleMedium,
+              textAlign: TextAlign.center,
             ),
+            const SizedBox(height: 8),
             TextButton(
               onPressed: () => context.go('/login'),
-              child: const Text('Kembali'),
+              child: const Text('Kembali ke Login'),
             ),
           ],
         ),
