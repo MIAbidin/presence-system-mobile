@@ -1,6 +1,7 @@
 // lib/screens/scan_screen.dart
 
 import 'dart:convert';
+import 'dart:typed_data';
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:geolocator/geolocator.dart';
@@ -90,25 +91,31 @@ class _ScanScreenState extends State<ScanScreen> {
 
   InputImage? _buildInputImage(CameraImage image) {
     try {
-      final cam      = _cameras.firstWhere(
-        (c) => c.lensDirection == CameraLensDirection.front,
-        orElse: () => _cameras.first,
-      );
-      final rotation = InputImageRotationValue.fromRawValue(cam.sensorOrientation)
-          ?? InputImageRotation.rotation0deg;
-      final format   = InputImageFormatValue.fromRawValue(image.format.raw);
+      final camera = _cameraController!.description;
+
+      final rotation = InputImageRotationValue.fromRawValue(
+            camera.sensorOrientation,
+          ) ??
+          InputImageRotation.rotation0deg;
+
+      final format = InputImageFormatValue.fromRawValue(image.format.raw);
       if (format == null) return null;
 
+      final bytes = Uint8List.fromList(
+        image.planes.expand((plane) => plane.bytes).toList(),
+      );
+
       return InputImage.fromBytes(
-        bytes: image.planes[0].bytes,
+        bytes: bytes,
         metadata: InputImageMetadata(
-          size       : Size(image.width.toDouble(), image.height.toDouble()),
-          rotation   : rotation,
-          format     : format,
-          bytesPerRow: image.planes[0].bytesPerRow,
+          size: Size(image.width.toDouble(), image.height.toDouble()),
+          rotation: rotation,
+          format: format,
+          bytesPerRow: image.planes.first.bytesPerRow,
         ),
       );
-    } catch (_) {
+    } catch (e) {
+      print('InputImage error: $e');
       return null;
     }
   }

@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "424400130055",
+    "project_id": "presensi-system",
+    "storage_bucket": "presensi-system.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:424400130055:android:bddcec1f2d6c9d97859aa2",
+        "android_client_info": {
+          "package_name": "com.example.presensi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBJ088GdjKx3xUxGouo6zE3nhgHm43mAhA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:424400130055:android:d9afaafd9da6c629859aa2",
+        "android_client_info": {
+          "package_name": "com.kampus.presensi.presensi_app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBJ088GdjKx3xUxGouo6zE3nhgHm43mAhA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
