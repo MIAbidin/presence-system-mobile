@@ -12,6 +12,7 @@ import 'package:presensi_app/screens/scan_screen.dart';
 import 'package:presensi_app/screens/kode_sesi_screen.dart';
 import 'package:presensi_app/screens/hasil_screen.dart';
 import 'package:presensi_app/screens/riwayat_screen.dart';
+import 'package:presensi_app/screens/home_screen.dart';
 
 // Screens — Dosen
 import 'package:presensi_app/screens/dosen/dashboard_dosen.dart';
@@ -43,7 +44,7 @@ GoRouter createRouter(AuthProvider authProvider) {
 
       // Sudah login dan di halaman login → redirect ke home sesuai role
       if (loc == '/login') {
-        return user?.isDosen == true ? '/dosen/dashboard' : '/scan';
+        return user?.isDosen == true ? '/dosen/dashboard' : '/home';
       }
 
       // Dosen mencoba akses route mahasiswa
@@ -64,6 +65,10 @@ GoRouter createRouter(AuthProvider authProvider) {
       ),
 
       // ── Mahasiswa ─────────────────────────────────────────
+      GoRoute(
+        path   : '/home',
+        builder: (context, state) => const HomeScreen(),
+      ),
       GoRoute(
         path   : '/register-face',
         builder: (context, state) => const RegisterFaceScreen(),

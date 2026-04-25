@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:presensi_app/providers/auth_provider.dart';
 import 'package:presensi_app/router.dart';
+import 'package:presensi_app/core/api_client.dart';
 
 // ── Firebase ─────────────────────────────────────────────
 import 'package:firebase_core/firebase_core.dart';
@@ -40,8 +41,16 @@ class PresensiApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider(
-      create: (_) => AuthProvider()..checkAuth(),
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(
+          create: (_) => AuthProvider()..checkAuth(),
+        ),
+
+        Provider<ApiClient>(
+          create: (_) => ApiClient(),
+        ),
+      ],
       child: Builder(
         builder: (context) {
           final authProvider = context.watch<AuthProvider>();
