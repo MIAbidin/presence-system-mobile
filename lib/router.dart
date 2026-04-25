@@ -2,17 +2,13 @@
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:provider/provider.dart';
 import 'package:presensi_app/providers/auth_provider.dart';
 
 // Screens — Mahasiswa
 import 'package:presensi_app/screens/login_screen.dart';
 import 'package:presensi_app/screens/register_face_screen.dart';
-import 'package:presensi_app/screens/scan_screen.dart';
 import 'package:presensi_app/screens/kode_sesi_screen.dart';
 import 'package:presensi_app/screens/hasil_screen.dart';
-import 'package:presensi_app/screens/riwayat_screen.dart';
-import 'package:presensi_app/screens/home_screen.dart';
 import 'package:presensi_app/widgets/bottom_nav.dart';
 
 // Screens — Dosen

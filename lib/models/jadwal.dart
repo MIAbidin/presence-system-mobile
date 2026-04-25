@@ -2,7 +2,6 @@
 // Model untuk data jadwal dari endpoint GET /jadwal/hari-ini dan GET /jadwal/mingguan
 // Memetakan schema JadwalItem dari backend FastAPI (app/schemas/home.py)
 
-import 'package:flutter/foundation.dart';
 
 /// Model satu mata kuliah dalam jadwal.
 /// Sesuai dengan JadwalItem di app/schemas/home.py

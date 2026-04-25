@@ -3,7 +3,6 @@
 // Menggantikan direct routing ke /scan setelah login
 
 import 'package:flutter/material.dart';
-import 'package:go_router/go_router.dart';
 
 import 'package:presensi_app/screens/home_screen.dart';
 import 'package:presensi_app/screens/jadwal_screen.dart';

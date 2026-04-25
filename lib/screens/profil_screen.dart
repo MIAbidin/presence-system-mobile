@@ -2,6 +2,7 @@
 // Halaman profil mahasiswa — menampilkan data user dari /auth/me,
 // status registrasi wajah, menu pengaturan, dan tombol logout.
 
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
@@ -20,15 +21,13 @@ const _kBgLight   = Color(0xFFF5F7FA);
 // ─── Model UserProfile (response GET /auth/me) ────────────────
 
 class UserProfileModel {
-  final String  id;
-  final String  nimNidn;
-  final String  namaLengkap;
-  final String  email;
-  final String  role;           // 'mahasiswa' | 'dosen' | 'admin'
-  final String  programStudi;
-  final bool    isFaceRegistered;
-  final bool    isActive;
-  final DateTime createdAt;
+  final String   id;
+  final String   nimNidn;
+  final String   namaLengkap;
+  final String   email;
+  final String   role;
+  final String   programStudi;
+  final bool     isFaceRegistered;
 
   const UserProfileModel({
     required this.id,
@@ -38,21 +37,17 @@ class UserProfileModel {
     required this.role,
     required this.programStudi,
     required this.isFaceRegistered,
-    required this.isActive,
-    required this.createdAt,
   });
 
   factory UserProfileModel.fromJson(Map<String, dynamic> json) =>
       UserProfileModel(
-        id              : json['id']               as String,
-        nimNidn         : json['nim_nidn']          as String,
-        namaLengkap     : json['nama_lengkap']      as String,
-        email           : json['email']             as String,
-        role            : json['role']              as String,
-        programStudi    : json['program_studi']     as String,
+        id              : json['id']                as String,
+        nimNidn         : json['nim_nidn']           as String,
+        namaLengkap     : json['nama_lengkap']       as String,
+        email           : json['email']              as String,
+        role            : json['role']               as String,
+        programStudi    : json['program_studi']      as String,
         isFaceRegistered: json['is_face_registered'] as bool,
-        isActive        : json['is_active']          as bool,
-        createdAt       : DateTime.parse(json['created_at'] as String),
       );
 
   String get inisial => namaLengkap.isNotEmpty
@@ -81,7 +76,7 @@ class ProfilScreen extends StatefulWidget {
 class _ProfilScreenState extends State<ProfilScreen>
     with AutomaticKeepAliveClientMixin {
   UserProfileModel? _profil;
-  bool    _isLoading  = true;
+  bool    _isLoading    = true;
   bool    _isLoggingOut = false;
   String? _error;
 
@@ -94,7 +89,7 @@ class _ProfilScreenState extends State<ProfilScreen>
     _fetchProfil();
   }
 
-  // ── Fetch data profil ────────────────────────────────────────
+  // ── Fetch data profil ─────────────────────────────────────
 
   Future<void> _fetchProfil() async {
     setState(() {
@@ -102,11 +97,12 @@ class _ProfilScreenState extends State<ProfilScreen>
       _error     = null;
     });
     try {
-      final client = context.read<ApiClient>();
-      final json   = await client.get('/auth/me');
+      // ApiClient().get() returns http.Response — decode body manually
+      final response = await ApiClient().get('/auth/me');
       if (!mounted) return;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
       setState(() {
-        _profil    = UserProfileModel.fromJson(json as Map<String, dynamic>);
+        _profil    = UserProfileModel.fromJson(data);
         _isLoading = false;
       });
     } catch (e) {
@@ -118,12 +114,12 @@ class _ProfilScreenState extends State<ProfilScreen>
     }
   }
 
-  // ── Logout dengan konfirmasi ─────────────────────────────────
+  // ── Logout dengan konfirmasi ──────────────────────────────
 
   Future<void> _handleLogout() async {
     final konfirmasi = await showDialog<bool>(
       context: context,
-      builder: (_) => _DialogKonfirmasiLogout(),
+      builder: (_) => const _DialogKonfirmasiLogout(),
     );
     if (konfirmasi != true || !mounted) return;
 
@@ -137,19 +133,16 @@ class _ProfilScreenState extends State<ProfilScreen>
       setState(() => _isLoggingOut = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Gagal logout. Coba lagi.'),
+          content        : Text('Gagal logout. Coba lagi.'),
           backgroundColor: _kDanger,
         ),
       );
     }
   }
 
-  // ── Navigasi ke update wajah ─────────────────────────────────
+  // ── Navigasi ke update wajah ──────────────────────────────
 
   void _goToUpdateWajah() {
-    // Navigasi ke halaman registrasi/update wajah
-    // Jika wajah belum terdaftar → register_face_screen
-    // Jika sudah terdaftar → konfirmasi update
     if (_profil?.isFaceRegistered == true) {
       _showDialogUpdateWajah();
     } else {
@@ -161,14 +154,10 @@ class _ProfilScreenState extends State<ProfilScreen>
     showDialog(
       context: context,
       builder: (_) => AlertDialog(
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Text(
           'Perbarui Data Wajah',
-          style: TextStyle(
-            color     : _kNavy,
-            fontWeight: FontWeight.bold,
-          ),
+          style: TextStyle(color: _kNavy, fontWeight: FontWeight.bold),
         ),
         content: const Text(
           'Pembaruan data wajah memerlukan persetujuan admin kampus. '
@@ -183,7 +172,6 @@ class _ProfilScreenState extends State<ProfilScreen>
           ElevatedButton(
             onPressed: () {
               Navigator.pop(context);
-              // TODO: Implementasi pengajuan request ke admin
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
                   content        : Text('Permintaan terkirim ke admin kampus.'),
@@ -202,9 +190,9 @@ class _ProfilScreenState extends State<ProfilScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
   // BUILD
-  // ─────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────
 
   @override
   Widget build(BuildContext context) {
@@ -223,24 +211,20 @@ class _ProfilScreenState extends State<ProfilScreen>
     final p = _profil!;
     return CustomScrollView(
       slivers: [
-        // ── Header profil ──────────────────────────────────────
         SliverToBoxAdapter(child: _buildHeader(p)),
-
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 32),
           sliver : SliverList(
             delegate: SliverChildListDelegate([
               const SizedBox(height: 20),
 
-              // ── Status registrasi wajah ─────────────────────
               _FaceStatusCard(
                 isRegistered: p.isFaceRegistered,
                 onTap       : _goToUpdateWajah,
               ),
               const SizedBox(height: 16),
 
-              // ── Informasi akun ─────────────────────────────
-              _SectionLabel(label: 'Informasi Akun'),
+              const _SectionLabel(label: 'Informasi Akun'),
               const SizedBox(height: 8),
               _InfoCard(
                 items: [
@@ -264,45 +248,41 @@ class _ProfilScreenState extends State<ProfilScreen>
                     label: 'Role',
                     value: p.labelRole,
                   ),
-                  _InfoItem(
-                    icon : Icons.calendar_today_outlined,
-                    label: 'Terdaftar Sejak',
-                    value: '${p.createdAt.day}/${p.createdAt.month}/${p.createdAt.year}',
-                  ),
                 ],
               ),
               const SizedBox(height: 16),
 
-              // ── Menu pengaturan ────────────────────────────
-              _SectionLabel(label: 'Pengaturan'),
+              const _SectionLabel(label: 'Pengaturan'),
               const SizedBox(height: 8),
               _MenuCard(
                 items: [
                   _MenuItem(
-                    icon   : Icons.lock_outline_rounded,
-                    label  : 'Ganti Password',
-                    onTap  : () => context.push('/ganti-password'),
+                    icon : Icons.lock_outline_rounded,
+                    label: 'Ganti Password',
+                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Fitur segera hadir'))),
                   ),
                   _MenuItem(
-                    icon   : Icons.notifications_outlined,
-                    label  : 'Notifikasi',
-                    onTap  : () => context.push('/pengaturan/notifikasi'),
+                    icon : Icons.notifications_outlined,
+                    label: 'Notifikasi',
+                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Fitur segera hadir'))),
                   ),
                   _MenuItem(
-                    icon   : Icons.help_outline_rounded,
-                    label  : 'Bantuan & Panduan',
-                    onTap  : () => context.push('/bantuan'),
+                    icon : Icons.help_outline_rounded,
+                    label: 'Bantuan & Panduan',
+                    onTap: () => ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Fitur segera hadir'))),
                   ),
                   _MenuItem(
-                    icon   : Icons.info_outline_rounded,
-                    label  : 'Tentang Aplikasi',
-                    onTap  : () => _showTentangApp(),
+                    icon : Icons.info_outline_rounded,
+                    label: 'Tentang Aplikasi',
+                    onTap: () => _showTentangApp(),
                   ),
                 ],
               ),
               const SizedBox(height: 24),
 
-              // ── Tombol logout ──────────────────────────────
               _LogoutButton(
                 isLoading: _isLoggingOut,
                 onTap    : _handleLogout,
@@ -321,15 +301,13 @@ class _ProfilScreenState extends State<ProfilScreen>
     );
   }
 
-  // ── Header dengan foto profil ──────────────────────────────
-
   Widget _buildHeader(UserProfileModel p) {
     return Container(
       decoration: const BoxDecoration(
         gradient: LinearGradient(
-          begin  : Alignment.topLeft,
-          end    : Alignment.bottomRight,
-          colors : [_kNavy, _kNavyLight],
+          begin : Alignment.topLeft,
+          end   : Alignment.bottomRight,
+          colors: [_kNavy, _kNavyLight],
         ),
       ),
       child: SafeArea(
@@ -338,17 +316,14 @@ class _ProfilScreenState extends State<ProfilScreen>
           padding: const EdgeInsets.fromLTRB(20, 20, 20, 36),
           child  : Column(
             children: [
-              // Avatar
               Container(
                 width      : 80,
                 height     : 80,
                 decoration : BoxDecoration(
-                  shape    : BoxShape.circle,
-                  color    : Colors.white.withOpacity(0.2),
-                  border   : Border.all(
-                    color: Colors.white.withOpacity(0.4),
-                    width: 2,
-                  ),
+                  shape : BoxShape.circle,
+                  color : Colors.white.withOpacity(0.2),
+                  border: Border.all(
+                    color: Colors.white.withOpacity(0.4), width: 2),
                 ),
                 child: Center(
                   child: Text(
@@ -362,8 +337,6 @@ class _ProfilScreenState extends State<ProfilScreen>
                 ),
               ),
               const SizedBox(height: 12),
-
-              // Nama
               Text(
                 p.namaLengkap,
                 style: const TextStyle(
@@ -374,24 +347,19 @@ class _ProfilScreenState extends State<ProfilScreen>
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 4),
-
-              // Badge role + program studi
               Row(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children         : [
                   Container(
-                    padding     : const EdgeInsets.symmetric(
+                    padding    : const EdgeInsets.symmetric(
                         horizontal: 10, vertical: 3),
-                    decoration  : BoxDecoration(
+                    decoration : BoxDecoration(
                       color       : Colors.white.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
                       p.labelRole,
-                      style: const TextStyle(
-                        color   : Colors.white,
-                        fontSize: 12,
-                      ),
+                      style: const TextStyle(color: Colors.white, fontSize: 12),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -399,9 +367,7 @@ class _ProfilScreenState extends State<ProfilScreen>
                     child: Text(
                       p.programStudi,
                       style: const TextStyle(
-                        color  : Colors.white70,
-                        fontSize: 13,
-                      ),
+                          color: Colors.white70, fontSize: 13),
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
@@ -416,9 +382,9 @@ class _ProfilScreenState extends State<ProfilScreen>
 
   void _showTentangApp() {
     showAboutDialog(
-      context         : context,
-      applicationName : 'Presensi Face Recognition',
-      applicationVersion: 'v1.0.0',
+      context            : context,
+      applicationName    : 'Presensi Face Recognition',
+      applicationVersion : 'v1.0.0',
       applicationLegalese: '© 2026 Kampus. All rights reserved.',
     );
   }
@@ -437,37 +403,34 @@ class _FaceStatusCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = isRegistered ? _kAccent : _kWarning;
-    final icon  = isRegistered
+    final color    = isRegistered ? _kAccent : _kWarning;
+    final icon     = isRegistered
         ? Icons.face_retouching_natural_rounded
         : Icons.face_outlined;
-    final title = isRegistered
+    final title    = isRegistered
         ? 'Data Wajah Terdaftar'
         : 'Wajah Belum Didaftarkan';
-    final desc  = isRegistered
+    final desc     = isRegistered
         ? 'Kamu sudah bisa melakukan presensi dengan scan wajah.'
         : 'Daftarkan wajahmu terlebih dahulu untuk bisa melakukan presensi.';
     final btnLabel = isRegistered ? 'Perbarui Data Wajah' : 'Daftar Sekarang';
 
     return GestureDetector(
-      onTap  : onTap,
-      child  : Container(
-        padding    : const EdgeInsets.all(16),
-        decoration : BoxDecoration(
-          color      : color.withOpacity(0.08),
+      onTap: onTap,
+      child: Container(
+        padding   : const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color       : color.withOpacity(0.08),
           borderRadius: BorderRadius.circular(14),
-          border     : Border.all(
-            color: color.withOpacity(0.3),
-            width: 1.5,
-          ),
+          border      : Border.all(color: color.withOpacity(0.3), width: 1.5),
         ),
         child: Row(
           children: [
             Container(
-              padding     : const EdgeInsets.all(10),
-              decoration  : BoxDecoration(
-                color       : color.withOpacity(0.15),
-                shape       : BoxShape.circle,
+              padding    : const EdgeInsets.all(10),
+              decoration : BoxDecoration(
+                color : color.withOpacity(0.15),
+                shape : BoxShape.circle,
               ),
               child: Icon(icon, color: color, size: 26),
             ),
@@ -476,32 +439,24 @@ class _FaceStatusCard extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children          : [
-                  Text(
-                    title,
+                  Text(title,
                     style: TextStyle(
                       color     : color,
                       fontSize  : 14,
                       fontWeight: FontWeight.bold,
-                    ),
-                  ),
+                    )),
                   const SizedBox(height: 3),
-                  Text(
-                    desc,
+                  Text(desc,
                     style: TextStyle(
-                      color  : color.withOpacity(0.8),
-                      fontSize: 12,
-                    ),
-                  ),
+                        color: color.withOpacity(0.8), fontSize: 12)),
                   const SizedBox(height: 8),
-                  Text(
-                    btnLabel,
+                  Text(btnLabel,
                     style: TextStyle(
-                      color    : color,
-                      fontSize : 12,
+                      color     : color,
+                      fontSize  : 12,
                       fontWeight: FontWeight.bold,
                       decoration: TextDecoration.underline,
-                    ),
-                  ),
+                    )),
                 ],
               ),
             ),
@@ -548,15 +503,12 @@ class _InfoCard extends StatelessWidget {
         ],
       ),
       child: ListView.separated(
-        shrinkWrap   : true,
-        physics      : const NeverScrollableScrollPhysics(),
-        itemCount    : items.length,
-        separatorBuilder: (_, __) => Divider(
-          height     : 1,
-          color      : Colors.grey.shade100,
-          indent     : 52,
-        ),
-        itemBuilder  : (_, i) => _InfoTile(item: items[i]),
+        shrinkWrap      : true,
+        physics         : const NeverScrollableScrollPhysics(),
+        itemCount       : items.length,
+        separatorBuilder: (_, __) =>
+            Divider(height: 1, color: Colors.grey.shade100, indent: 52),
+        itemBuilder: (_, i) => _InfoTile(item: items[i]),
       ),
     );
   }
@@ -578,22 +530,15 @@ class _InfoTile extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children          : [
-              Text(
-                item.label,
-                style: const TextStyle(
-                  color  : Colors.grey,
-                  fontSize: 11,
-                ),
-              ),
+              Text(item.label,
+                style: const TextStyle(color: Colors.grey, fontSize: 11)),
               const SizedBox(height: 2),
-              Text(
-                item.value,
+              Text(item.value,
                 style: const TextStyle(
                   color     : _kNavy,
                   fontSize  : 14,
                   fontWeight: FontWeight.w500,
-                ),
-              ),
+                )),
             ],
           ),
         ),
@@ -608,13 +553,13 @@ class _MenuItem {
   final IconData     icon;
   final String       label;
   final VoidCallback onTap;
-  final Color?       color;
+  final Color?       color; // FIX: field ada, constructor juga harus ada
 
   const _MenuItem({
     required this.icon,
     required this.label,
     required this.onTap,
-    this.color,
+    this.color,             // FIX: parameter opsional ditambahkan
   });
 }
 
@@ -640,21 +585,18 @@ class _MenuCard extends StatelessWidget {
       shrinkWrap      : true,
       physics         : const NeverScrollableScrollPhysics(),
       itemCount       : items.length,
-      separatorBuilder: (_, __) => Divider(
-        height: 1,
-        color : Colors.grey.shade100,
-        indent: 52,
-      ),
+      separatorBuilder: (_, __) =>
+          Divider(height: 1, color: Colors.grey.shade100, indent: 52),
       itemBuilder: (_, i) {
         final item = items[i];
         return ListTile(
-          onTap       : item.onTap,
-          leading     : Icon(
+          onTap  : item.onTap,
+          leading: Icon(
             item.icon,
             color: item.color ?? _kNavy.withOpacity(0.5),
             size : 22,
           ),
-          title       : Text(
+          title  : Text(
             item.label,
             style: TextStyle(
               color     : item.color ?? _kNavy,
@@ -662,7 +604,7 @@ class _MenuCard extends StatelessWidget {
               fontWeight: FontWeight.w500,
             ),
           ),
-          trailing    : Icon(
+          trailing: Icon(
             Icons.chevron_right_rounded,
             color: Colors.grey.shade300,
             size : 20,
@@ -682,39 +624,31 @@ class _LogoutButton extends StatelessWidget {
   final bool         isLoading;
   final VoidCallback onTap;
 
-  const _LogoutButton({
-    required this.isLoading,
-    required this.onTap,
-  });
+  const _LogoutButton({required this.isLoading, required this.onTap});
 
   @override
   Widget build(BuildContext context) => SizedBox(
     width : double.infinity,
     height: 50,
     child : OutlinedButton.icon(
-      onPressed  : isLoading ? null : onTap,
-      icon       : isLoading
+      onPressed: isLoading ? null : onTap,
+      icon     : isLoading
           ? const SizedBox(
               width : 18,
               height: 18,
               child : CircularProgressIndicator(
-                strokeWidth: 2,
-                color      : _kDanger,
-              ),
+                  strokeWidth: 2, color: _kDanger),
             )
           : const Icon(Icons.logout_rounded, color: _kDanger),
-      label      : Text(
+      label: Text(
         isLoading ? 'Keluar...' : 'Keluar dari Akun',
         style: const TextStyle(
-          color     : _kDanger,
-          fontWeight: FontWeight.bold,
-        ),
+            color: _kDanger, fontWeight: FontWeight.bold),
       ),
-      style      : OutlinedButton.styleFrom(
-        side        : const BorderSide(color: _kDanger, width: 1.5),
-        shape       : RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(12),
-        ),
+      style: OutlinedButton.styleFrom(
+        side : const BorderSide(color: _kDanger, width: 1.5),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12)),
       ),
     ),
   );
@@ -723,10 +657,11 @@ class _LogoutButton extends StatelessWidget {
 // ─── Dialog konfirmasi logout ─────────────────────────────────
 
 class _DialogKonfirmasiLogout extends StatelessWidget {
+  const _DialogKonfirmasiLogout();
+
   @override
   Widget build(BuildContext context) => AlertDialog(
-    shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16)),
+    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
     title: const Row(
       children: [
         Icon(Icons.logout_rounded, color: _kDanger),
@@ -742,16 +677,15 @@ class _DialogKonfirmasiLogout extends StatelessWidget {
       ],
     ),
     content: const Text(
-      'Kamu akan keluar dari aplikasi. Token sesi akan dihapus dan kamu perlu login ulang.',
+      'Kamu akan keluar dari aplikasi. Token sesi akan dihapus dan '
+      'kamu perlu login ulang.',
       style: TextStyle(fontSize: 14),
     ),
     actions: [
       TextButton(
         onPressed: () => Navigator.pop(context, false),
-        child    : const Text(
-          'Batal',
-          style: TextStyle(color: Colors.grey),
-        ),
+        child    : const Text('Batal',
+            style: TextStyle(color: Colors.grey)),
       ),
       ElevatedButton(
         onPressed: () => Navigator.pop(context, true),
@@ -759,8 +693,7 @@ class _DialogKonfirmasiLogout extends StatelessWidget {
           backgroundColor: _kDanger,
           foregroundColor: Colors.white,
           shape          : RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10),
-          ),
+              borderRadius: BorderRadius.circular(10)),
         ),
         child: const Text('Ya, Keluar'),
       ),
@@ -779,9 +712,9 @@ class _SectionLabel extends StatelessWidget {
   Widget build(BuildContext context) => Text(
     label,
     style: const TextStyle(
-      color     : _kNavy,
-      fontSize  : 13,
-      fontWeight: FontWeight.bold,
+      color        : _kNavy,
+      fontSize     : 13,
+      fontWeight   : FontWeight.bold,
       letterSpacing: 0.3,
     ),
   );
@@ -809,29 +742,24 @@ class _ErrorView extends StatelessWidget {
       child  : Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children         : [
-          Icon(Icons.error_outline,
-              size: 56, color: Colors.grey.shade300),
+          Icon(Icons.error_outline, size: 56, color: Colors.grey.shade300),
           const SizedBox(height: 16),
-          const Text(
-            'Gagal memuat profil',
+          const Text('Gagal memuat profil',
             style: TextStyle(
-              color    : _kNavy,
-              fontSize : 16,
+              color     : _kNavy,
+              fontSize  : 16,
               fontWeight: FontWeight.bold,
-            ),
-          ),
+            )),
           const SizedBox(height: 8),
-          Text(
-            error,
+          Text(error,
             textAlign: TextAlign.center,
-            style    : const TextStyle(color: Colors.grey, fontSize: 13),
-          ),
+            style    : const TextStyle(color: Colors.grey, fontSize: 13)),
           const SizedBox(height: 20),
           ElevatedButton.icon(
-            onPressed : onRetry,
-            icon      : const Icon(Icons.refresh),
-            label     : const Text('Coba Lagi'),
-            style     : ElevatedButton.styleFrom(
+            onPressed: onRetry,
+            icon     : const Icon(Icons.refresh),
+            label    : const Text('Coba Lagi'),
+            style    : ElevatedButton.styleFrom(
               backgroundColor: _kNavy,
               foregroundColor: Colors.white,
             ),

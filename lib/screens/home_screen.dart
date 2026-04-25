@@ -2,14 +2,11 @@
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'package:provider/provider.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:presensi_app/core/api_client.dart';
 import 'package:presensi_app/models/jadwal.dart';
-import 'package:presensi_app/providers/auth_provider.dart';
-import 'package:presensi_app/widgets/bottom_nav.dart';
 
 const _kNavy      = Color(0xFF1E3A5F);
 const _kNavyLight = Color(0xFF2A5298);
@@ -147,6 +144,7 @@ class _HomeScreenState extends State<HomeScreen>
   }
 
   Future<void> _fetchSummary() async {
+    if (_isLoading) return;
     setState(() {
       _isLoading = true;
       _error     = null;

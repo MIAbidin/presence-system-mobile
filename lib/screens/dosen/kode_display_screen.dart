@@ -107,7 +107,7 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
   Future<void> _regenKode() async {
     final confirm = await _showConfirmDialog(
       title  : 'Generate Kode Baru?',
-      content: 'Kode lama (${_kode}) akan langsung hangus.\n'
+      content: 'Kode lama ($_kode) akan langsung hangus.\n'
                'Mahasiswa yang belum presensi harus pakai kode baru.',
       okLabel: 'Ya, Generate',
       okColor: Colors.orange.shade700,

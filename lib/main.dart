@@ -43,7 +43,7 @@ class PresensiApp extends StatelessWidget {
       ],
       child: Builder(
         builder: (context) {
-          final authProvider = context.watch<AuthProvider>();
+          final authProvider = context.read<AuthProvider>();
           final router = createRouter(authProvider);
           return MaterialApp.router(
             title: 'Presensi SKS',

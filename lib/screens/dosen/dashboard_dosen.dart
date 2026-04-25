@@ -177,7 +177,7 @@ class _DashboardDosenState extends State<DashboardDosen> {
               const Text('Status Baru:', style: TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 8),
               DropdownButtonFormField<String>(
-                value    : selectedStatus,
+                initialValue    : selectedStatus,
                 decoration: InputDecoration(
                   filled   : true,
                   fillColor: Colors.white,

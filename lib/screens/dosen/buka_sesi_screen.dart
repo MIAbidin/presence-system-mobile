@@ -161,7 +161,7 @@ class _BukaSesiScreenState extends State<BukaSesiScreen> {
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
                         DropdownButtonFormField<String>(
-                          value      : _selectedMatakuliahId,
+                          initialValue      : _selectedMatakuliahId,
                           decoration : InputDecoration(
                             labelText : 'Pilih Matakuliah',
                             filled    : true,
