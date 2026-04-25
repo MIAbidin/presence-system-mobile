@@ -19,7 +19,12 @@ class ScanScreen extends StatefulWidget {
   State<ScanScreen> createState() => _ScanScreenState();
 }
 
-class _ScanScreenState extends State<ScanScreen> {
+class _ScanScreenState extends State<ScanScreen>
+    with AutomaticKeepAliveClientMixin, WidgetsBindingObserver {
+
+  @override
+  bool get wantKeepAlive => true;
+
   // ── Camera ────────────────────────────────────────────────
   CameraController? _cameraController;
   List<CameraDescription> _cameras = [];
@@ -43,8 +48,31 @@ class _ScanScreenState extends State<ScanScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initCamera();
     _cekSesiAktif();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _cameraController?.dispose();
+    _faceDetector.close();
+    super.dispose();
+  }
+
+  // ── Lifecycle: matikan kamera saat background, hidupkan saat resume ──
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused) {
+      // Matikan kamera saat app ke background atau tab tidak aktif
+      _cameraController?.dispose();
+      if (mounted) setState(() => _isCameraReady = false);
+    } else if (state == AppLifecycleState.resumed) {
+      // Hidupkan kembali saat app kembali ke foreground
+      _initCamera();
+    }
   }
 
   Future<void> _initCamera() async {
@@ -115,7 +143,7 @@ class _ScanScreenState extends State<ScanScreen> {
         ),
       );
     } catch (e) {
-      print('InputImage error: $e');
+      debugPrint('InputImage error: $e');
       return null;
     }
   }
@@ -124,9 +152,6 @@ class _ScanScreenState extends State<ScanScreen> {
   Future<void> _cekSesiAktif() async {
     setState(() => _loadingSesi = true);
     try {
-      // Cek semua matakuliah user — simplified: ambil list matakuliah user
-      // Untuk demo, kita langsung biarkan user input sesi_id
-      // Implementasi penuh: GET /presensi/riwayat → ambil matakuliah IDs → cek sesi
       setState(() => _loadingSesi = false);
     } catch (_) {
       setState(() => _loadingSesi = false);
@@ -333,7 +358,7 @@ class _ScanScreenState extends State<ScanScreen> {
                 ),
                 const SizedBox(height: 12),
 
-                // Input kode sesi (hanya mode online)
+                // Tombol aksi berdasarkan mode
                 if (selectedMode == 'online') ...[
                   ElevatedButton.icon(
                     onPressed: () {
@@ -378,14 +403,8 @@ class _ScanScreenState extends State<ScanScreen> {
   }
 
   @override
-  void dispose() {
-    _cameraController?.dispose();
-    _faceDetector.close();
-    super.dispose();
-  }
-
-  @override
   Widget build(BuildContext context) {
+    super.build(context); // wajib untuk AutomaticKeepAliveClientMixin
     final user = context.watch<AuthProvider>().currentUser;
 
     return Scaffold(
@@ -420,7 +439,8 @@ class _ScanScreenState extends State<ScanScreen> {
                       ),
                       Text(
                         user?.nimNidn ?? '',
-                        style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 13),
+                        style: TextStyle(
+                          color: Colors.white.withOpacity(0.7), fontSize: 13),
                       ),
                     ],
                   ),
@@ -445,12 +465,25 @@ class _ScanScreenState extends State<ScanScreen> {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                _isCameraReady && _cameraController != null
-                    ? SizedBox.expand(child: CameraPreview(_cameraController!))
-                    : const Center(
-                        child: CircularProgressIndicator(color: Colors.white),
-                      ),
+                // Camera preview atau loading
+                if (_isCameraReady && _cameraController != null)
+                  SizedBox.expand(child: CameraPreview(_cameraController!))
+                else
+                  const Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        CircularProgressIndicator(color: Colors.white),
+                        SizedBox(height: 12),
+                        Text(
+                          'Memuat kamera...',
+                          style: TextStyle(color: Colors.white70),
+                        ),
+                      ],
+                    ),
+                  ),
 
+                // Overlay lingkaran wajah
                 CustomPaint(
                   size   : Size.infinite,
                   painter: FaceOverlayPainter(faceDetected: _faceDetected),
@@ -463,26 +496,32 @@ class _ScanScreenState extends State<ScanScreen> {
                     duration  : const Duration(milliseconds: 300),
                     padding   : const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
-                      color        : (_faceDetected ? Colors.green : Colors.red).withOpacity(0.85),
+                      color        : (_faceDetected ? Colors.green : Colors.red)
+                          .withOpacity(0.85),
                       borderRadius : BorderRadius.circular(20),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         Icon(
-                          _faceDetected ? Icons.face_rounded : Icons.face_retouching_off,
+                          _faceDetected
+                              ? Icons.face_rounded
+                              : Icons.face_retouching_off,
                           color: Colors.white, size: 18),
                         const SizedBox(width: 6),
                         Text(
-                          _faceDetected ? 'Siap Scan' : 'Arahkan Wajah ke Kamera',
-                          style: const TextStyle(color: Colors.white, fontSize: 13),
+                          _faceDetected
+                              ? 'Siap Scan'
+                              : 'Arahkan Wajah ke Kamera',
+                          style: const TextStyle(
+                            color: Colors.white, fontSize: 13),
                         ),
                       ],
                     ),
                   ),
                 ),
 
-                // Loading saat verifikasi
+                // Loading overlay saat verifikasi
                 if (_isVerifying)
                   Container(
                     color: Colors.black.withOpacity(0.7),
@@ -520,7 +559,7 @@ class _ScanScreenState extends State<ScanScreen> {
                 SizedBox(
                   height: 56,
                   child : ElevatedButton.icon(
-                    onPressed: (_isVerifying || !_faceDetected)
+                    onPressed: (_isVerifying || !_faceDetected || !_isCameraReady)
                         ? null
                         : _showPresensiDialog,
                     icon : const Icon(Icons.qr_code_scanner_rounded, size: 22),
@@ -529,7 +568,9 @@ class _ScanScreenState extends State<ScanScreen> {
                       style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                     ),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: _faceDetected ? const Color(0xFF1E3A5F) : Colors.grey.shade700,
+                      backgroundColor: (_faceDetected && _isCameraReady)
+                          ? const Color(0xFF1E3A5F)
+                          : Colors.grey.shade700,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(14)),
@@ -548,11 +589,15 @@ class _ScanScreenState extends State<ScanScreen> {
 // ── Widget kartu mode ────────────────────────────────────────
 
 class _ModeCard extends StatelessWidget {
-  final String  label;
+  final String   label;
   final IconData icon;
-  final bool    selected;
+  final bool     selected;
 
-  const _ModeCard({required this.label, required this.icon, required this.selected});
+  const _ModeCard({
+    required this.label,
+    required this.icon,
+    required this.selected,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -560,7 +605,9 @@ class _ModeCard extends StatelessWidget {
       duration  : const Duration(milliseconds: 200),
       padding   : const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
       decoration: BoxDecoration(
-        color        : selected ? const Color(0xFF1E3A5F) : Colors.white.withOpacity(0.07),
+        color        : selected
+            ? const Color(0xFF1E3A5F)
+            : Colors.white.withOpacity(0.07),
         borderRadius : BorderRadius.circular(12),
         border       : Border.all(
           color: selected ? Colors.blueAccent : Colors.transparent,
@@ -570,14 +617,18 @@ class _ModeCard extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, color: selected ? Colors.white : Colors.white54, size: 26),
+          Icon(
+            icon,
+            color: selected ? Colors.white : Colors.white54,
+            size : 26,
+          ),
           const SizedBox(height: 6),
           Text(
             label,
             textAlign: TextAlign.center,
             style: TextStyle(
-              color    : selected ? Colors.white : Colors.white54,
-              fontSize : 11,
+              color     : selected ? Colors.white : Colors.white54,
+              fontSize  : 11,
               fontWeight: selected ? FontWeight.bold : FontWeight.normal,
             ),
           ),

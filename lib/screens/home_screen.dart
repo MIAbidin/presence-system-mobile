@@ -142,21 +142,21 @@ class _HomeScreenState extends State<HomeScreen>
     _countdownTimer?.cancel();
     super.dispose();
   }
+  
+  bool _isFetching = false;
 
   Future<void> _fetchSummary() async {
-    if (_isLoading) return;
+    if (_isFetching) return;
+    _isFetching = true;
     setState(() {
       _isLoading = true;
       _error     = null;
     });
 
     try {
-      // ApiClient().get() returns http.Response — we must decode body manually
       final response = await ApiClient().get('/mahasiswa/home-summary');
-
       final Map<String, dynamic> json =
           jsonDecode(response.body) as Map<String, dynamic>;
-
       final summary = HomeSummaryModel.fromJson(json);
 
       if (!mounted) return;
@@ -165,7 +165,6 @@ class _HomeScreenState extends State<HomeScreen>
         _isLoading = false;
       });
 
-      // Start countdown if there's an active online session with time remaining
       if (summary.sesiAktif.isNotEmpty) {
         final onlineSesi = summary.sesiAktif
             .where((s) => s.isOnline && s.detikTersisa != null)
@@ -180,6 +179,8 @@ class _HomeScreenState extends State<HomeScreen>
         _error     = e.toString();
         _isLoading = false;
       });
+    } finally {
+      _isFetching = false;
     }
   }
 
@@ -188,15 +189,15 @@ class _HomeScreenState extends State<HomeScreen>
     _countdownTimer?.cancel();
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
-      setState(() {
-        if (_sisaWaktu != null && _sisaWaktu!.inSeconds > 0) {
+      if (_sisaWaktu != null && _sisaWaktu!.inSeconds > 0) {
+        setState(() {
           _sisaWaktu = _sisaWaktu! - const Duration(seconds: 1);
-        } else {
-          _sisaWaktu = Duration.zero;
-          _countdownTimer?.cancel();
-          _fetchSummary();
-        }
-      });
+        });
+      } else {
+        _countdownTimer?.cancel();
+        setState(() => _sisaWaktu = Duration.zero);
+        // Jangan fetch ulang otomatis — biarkan user refresh manual
+      }
     });
   }
 
