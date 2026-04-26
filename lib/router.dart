@@ -17,37 +17,80 @@ import 'package:presensi_app/screens/dosen/buka_sesi_screen.dart';
 import 'package:presensi_app/screens/dosen/kode_display_screen.dart';
 import 'package:presensi_app/screens/dosen/rekap_screen.dart';
 
+// Halaman loading saat cek auth
+class _SplashScreen extends StatelessWidget {
+  const _SplashScreen();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Scaffold(
+      backgroundColor: Color(0xFF1E3A5F),
+      body: Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.face_retouching_natural,
+              size : 64,
+              color: Colors.white,
+            ),
+            SizedBox(height: 24),
+            CircularProgressIndicator(color: Colors.white),
+            SizedBox(height: 16),
+            Text(
+              'Memuat...',
+              style: TextStyle(color: Colors.white70, fontSize: 14),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 GoRouter createRouter(AuthProvider authProvider) {
   return GoRouter(
     refreshListenable: authProvider,
-    initialLocation  : '/login',
+    initialLocation  : '/splash',
 
     redirect: (context, state) {
       final status = authProvider.status;
       final user   = authProvider.currentUser;
       final loc    = state.matchedLocation;
 
-      // Still checking auth state — don't redirect yet
-      if (status == AuthStatus.unknown) return null;
+      // Masih loading → tampilkan splash, jangan redirect ke mana-mana
+      if (status == AuthStatus.unknown) {
+        return loc == '/splash' ? null : '/splash';
+      }
 
-      // Not logged in → go to login (unless already there)
+      // Dari splash → redirect ke tempat yang benar setelah auth selesai
+      if (loc == '/splash') {
+        if (status == AuthStatus.unauthenticated) return '/login';
+        // authenticated — cek role
+        if (user?.isDosen == true) return '/dosen/dashboard';
+        if (user?.isMahasiswa == true && !user!.isFaceRegistered) {
+          return '/register-face';
+        }
+        return '/home';
+      }
+
+      // Belum login → paksa ke login
       if (status == AuthStatus.unauthenticated) {
         return loc == '/login' ? null : '/login';
       }
 
-      // Logged in but face not registered → force to register-face
-      // (except if already going there)
+      // Mahasiswa belum daftar wajah → paksa register face
       if (user != null && user.isMahasiswa && !user.isFaceRegistered) {
         if (loc != '/register-face') return '/register-face';
         return null;
       }
 
-      // Already logged in and on login page → go to home by role
+      // Sudah login dan masuk halaman login → redirect ke home
       if (loc == '/login') {
         return user?.isDosen == true ? '/dosen/dashboard' : '/home';
       }
 
-      // Dosen trying to access mahasiswa-only routes
+      // Dosen tidak boleh akses route mahasiswa
       if (user?.isDosen == true) {
         const mahasiswaRoutes = ['/home', '/scan', '/register-face', '/riwayat'];
         if (mahasiswaRoutes.contains(loc)) return '/dosen/dashboard';
@@ -57,6 +100,12 @@ GoRouter createRouter(AuthProvider authProvider) {
     },
 
     routes: [
+      // ── Splash / Loading ──────────────────────────────────
+      GoRoute(
+        path   : '/splash',
+        builder: (context, state) => const _SplashScreen(),
+      ),
+
       // ── Auth ─────────────────────────────────────────────
       GoRoute(
         path   : '/login',

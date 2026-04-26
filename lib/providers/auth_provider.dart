@@ -14,35 +14,52 @@ class AuthProvider extends ChangeNotifier {
   String?    _errorMessage;
   bool       _isLoading   = false;
 
-  // ── Getters ───────────────────────────────────────────────
   AuthStatus get status       => _status;
   UserModel? get currentUser  => _currentUser;
   String?    get errorMessage => _errorMessage;
   bool       get isLoading    => _isLoading;
   bool       get isLoggedIn   => _status == AuthStatus.authenticated;
 
-  // ── Check session on app start ────────────────────────────
+  // Dipanggil saat app start — WAJIB validasi token ke server
   Future<void> checkAuth() async {
-    final loggedIn = await AppStorage.isLoggedIn();
-    if (!loggedIn) {
+    final token = await AppStorage.getAccessToken();
+
+    if (token == null || token.isEmpty) {
       _status = AuthStatus.unauthenticated;
       notifyListeners();
       return;
     }
 
-    // Restore user from local storage
-    final userData = await AppStorage.getUserData();
-    if (userData != null) {
-      _currentUser = UserModel.fromJson(userData);
-      _status      = AuthStatus.authenticated;
-      notifyListeners();
-    } else {
-      // Token exists but user data is missing — re-fetch from API
-      await _fetchCurrentUser();
+    // Pakai getRaw() agar tidak throw untuk status 401
+    try {
+      final response = await ApiClient().getRaw('/auth/me');
+
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        _currentUser = UserModel.fromJson(data);
+        await AppStorage.saveUserData(data);
+        _status = AuthStatus.authenticated;
+      } else {
+        // Token tidak valid di server → paksa login ulang
+        await AppStorage.clearAll();
+        _currentUser = null;
+        _status = AuthStatus.unauthenticated;
+      }
+    } catch (_) {
+      // Tidak bisa reach server → fallback ke data lokal
+      final userData = await AppStorage.getUserData();
+      if (userData != null) {
+        _currentUser = UserModel.fromJson(userData);
+        _status      = AuthStatus.authenticated;
+      } else {
+        await AppStorage.clearAll();
+        _status = AuthStatus.unauthenticated;
+      }
     }
+
+    notifyListeners();
   }
 
-  // ── Login ─────────────────────────────────────────────────
   Future<bool> login(String nimNidn, String password) async {
     _isLoading    = true;
     _errorMessage = null;
@@ -57,11 +74,9 @@ class AuthProvider extends ChangeNotifier {
 
       final data = jsonDecode(response.body);
 
-      // Save tokens to secure storage
       await AppStorage.saveAccessToken(data['access_token']);
       await AppStorage.saveRefreshToken(data['refresh_token']);
 
-      // Save user data locally
       final user = UserModel.fromJson(data['user']);
       await AppStorage.saveUserData(data['user']);
 
@@ -79,7 +94,7 @@ class AuthProvider extends ChangeNotifier {
       return false;
 
     } catch (e) {
-      _errorMessage = 'Cannot connect to server, please check your connection';
+      _errorMessage = 'Tidak dapat terhubung ke server, periksa koneksi';
       _status       = AuthStatus.unauthenticated;
       _isLoading    = false;
       notifyListeners();
@@ -87,56 +102,33 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
-  // ── Logout ────────────────────────────────────────────────
   Future<void> logout() async {
     try {
       await ApiClient().post('/auth/logout');
-    } catch (_) {
-      // Still logout even if API call fails
-    }
+    } catch (_) {}
     await AppStorage.clearAll();
     _currentUser = null;
     _status      = AuthStatus.unauthenticated;
     notifyListeners();
   }
 
-  // ── Refresh access token silently ─────────────────────────
   Future<bool> refreshToken() async {
     try {
       final refreshToken = await AppStorage.getRefreshToken();
       if (refreshToken == null) return false;
-
       final response = await ApiClient().post(
         '/auth/refresh-token',
         body    : {'refresh_token': refreshToken},
         withAuth: false,
       );
-
       final data = jsonDecode(response.body);
       await AppStorage.saveAccessToken(data['access_token']);
       return true;
-
     } catch (_) {
       return false;
     }
   }
 
-  // ── Fetch current user from API ───────────────────────────
-  Future<void> _fetchCurrentUser() async {
-    try {
-      final response = await ApiClient().get('/auth/me');
-      final data     = jsonDecode(response.body);
-      _currentUser   = UserModel.fromJson(data);
-      await AppStorage.saveUserData(data);
-      _status = AuthStatus.authenticated;
-    } catch (_) {
-      _status = AuthStatus.unauthenticated;
-    }
-    notifyListeners();
-  }
-
-  // ── Update face registered flag locally ───────────────────
-  // Called after successful face registration in Phase 7
   void updateFaceRegistered(bool value) {
     if (_currentUser == null) return;
     _currentUser = UserModel(

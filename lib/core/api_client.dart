@@ -25,7 +25,7 @@ class ApiClient {
     return headers;
   }
 
-  // ── GET ───────────────────────────────────────────────────
+  // ── GET (throws ApiException on error) ────────────────────
   Future<http.Response> get(String path) async {
     final response = await http
         .get(
@@ -34,6 +34,18 @@ class ApiClient {
         )
         .timeout(const Duration(seconds: 30));
     return _handleResponse(response);
+  }
+
+  // ── GET tanpa throw — untuk cek auth status ───────────────
+  // Dipakai di checkAuth() agar bisa cek statusCode 401 secara eksplisit
+  Future<http.Response> getRaw(String path) async {
+    final response = await http
+        .get(
+          Uri.parse('$_baseUrl$path'),
+          headers: await _headers(),
+        )
+        .timeout(const Duration(seconds: 30));
+    return response; // tidak throw, kembalikan apa adanya
   }
 
   // ── POST (JSON) ───────────────────────────────────────────
@@ -100,7 +112,7 @@ class ApiClient {
       final body = jsonDecode(response.body);
       throw ApiException(
         statusCode: response.statusCode,
-        message: body['detail'] ?? 'An error occurred',
+        message: body['detail'] ?? 'Terjadi kesalahan',
       );
     }
     return response;
