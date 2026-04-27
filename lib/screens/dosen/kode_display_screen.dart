@@ -1,4 +1,7 @@
 // lib/screens/dosen/kode_display_screen.dart
+// FIX: kode 6 karakter tidak wrap ke baris kedua
+// - letterSpacing dikurangi
+// - tambah FittedBox agar auto-scale jika masih tidak muat
 
 import 'dart:async';
 import 'dart:convert';
@@ -8,8 +11,6 @@ import 'package:go_router/go_router.dart';
 import 'package:presensi_app/core/api_client.dart';
 
 class KodeDisplayScreen extends StatefulWidget {
-  /// sesiData berisi response dari POST /sesi/buka
-  /// field: id, kode_sesi, detik_tersisa, mode, matakuliah, pertemuan_ke, dll
   final Map<String, dynamic> sesiData;
 
   const KodeDisplayScreen({super.key, required this.sesiData});
@@ -19,16 +20,13 @@ class KodeDisplayScreen extends StatefulWidget {
 }
 
 class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
-  // ── Data sesi ─────────────────────────────────────────────
   late String _sesiId;
   late String _kode;
   late int    _detikTersisa;
 
-  // ── Countdown timer ───────────────────────────────────────
   Timer? _countdownTimer;
   bool   _isExpired = false;
 
-  // ── State operasi ─────────────────────────────────────────
   bool _isExtending  = false;
   bool _isRegening   = false;
   bool _isClosing    = false;
@@ -39,7 +37,6 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
     _sesiId       = widget.sesiData['id']            as String? ?? '';
     _kode         = widget.sesiData['kode_sesi']     as String? ?? '------';
     _detikTersisa = widget.sesiData['detik_tersisa'] as int?    ?? 1800;
-
     _startCountdown();
   }
 
@@ -76,7 +73,6 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
     return Colors.redAccent;
   }
 
-  // ── POST /sesi/extend ─────────────────────────────────────
   Future<void> _extendKode(int tambahanMenit) async {
     setState(() => _isExtending = true);
     try {
@@ -103,7 +99,6 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
     }
   }
 
-  // ── POST /sesi/regen-kode ─────────────────────────────────
   Future<void> _regenKode() async {
     final confirm = await _showConfirmDialog(
       title  : 'Generate Kode Baru?',
@@ -139,7 +134,6 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
     }
   }
 
-  // ── POST /sesi/tutup ──────────────────────────────────────
   Future<void> _tutupSesi() async {
     final confirm = await _showConfirmDialog(
       title  : 'Akhiri Sesi?',
@@ -219,7 +213,6 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
         title          : const Text('Kode Sesi Online'),
         elevation      : 0,
         actions: [
-          // Tombol ke dashboard
           IconButton(
             icon   : const Icon(Icons.dashboard_rounded),
             tooltip: 'Monitor Kehadiran',
@@ -230,34 +223,29 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
       ),
       body: SafeArea(
         child: Padding(
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.symmetric(horizontal: 24),
           child: Column(
             children: [
               const Spacer(flex: 1),
 
               // ── Label ─────────────────────────────────────
-              Text(
+              const Text(
                 'Bagikan kode ini ke mahasiswa',
-                style: TextStyle(
-                  color    : Colors.white.withOpacity(0.7),
-                  fontSize : 16,
-                ),
+                style: TextStyle(color: Colors.white70, fontSize: 16),
               ),
-              const SizedBox(height: 8),
-              Text(
+              const SizedBox(height: 6),
+              const Text(
                 'via Zoom / Meet / WhatsApp',
-                style: TextStyle(
-                  color    : Colors.white.withOpacity(0.5),
-                  fontSize : 13,
-                ),
+                style: TextStyle(color: Colors.white38, fontSize: 13),
               ),
-              const SizedBox(height: 32),
+              const SizedBox(height: 28),
 
-              // ── Kode besar ────────────────────────────────
+              // ── Kode besar — FIX: FittedBox agar tidak wrap ──
               GestureDetector(
                 onTap: _copyKode,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 28),
+                  width    : double.infinity,
+                  padding  : const EdgeInsets.symmetric(horizontal: 24, vertical: 28),
                   decoration: BoxDecoration(
                     color       : _isExpired
                         ? Colors.grey.shade800
@@ -278,19 +266,25 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
                   ),
                   child: Column(
                     children: [
-                      Text(
-                        _kode,
-                        style: TextStyle(
-                          color       : _isExpired ? Colors.grey : Colors.white,
-                          fontSize    : 52,
-                          fontWeight  : FontWeight.w900,
-                          letterSpacing: 12,
-                          fontFeatures: const [FontFeature.tabularFigures()],
+                      // ✅ FIX: FittedBox + letterSpacing lebih kecil
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          _kode,
+                          maxLines: 1,
+                          style: TextStyle(
+                            color        : _isExpired ? Colors.grey : Colors.white,
+                            fontSize     : 56,
+                            fontWeight   : FontWeight.w900,
+                            // ✅ letterSpacing dikurangi dari 12 → 8
+                            letterSpacing: 8,
+                            fontFeatures : const [FontFeature.tabularFigures()],
+                          ),
                         ),
                       ),
-                      const SizedBox(height: 8),
+                      const SizedBox(height: 10),
                       Row(
-                        mainAxisSize: MainAxisSize.min,
+                        mainAxisAlignment: MainAxisAlignment.center,
                         children: [
                           Icon(
                             Icons.copy_rounded,
@@ -311,7 +305,7 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
                   ),
                 ),
               ),
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
 
               // ── Countdown Timer ───────────────────────────
               Container(
@@ -382,7 +376,6 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
               ),
               const SizedBox(height: 10),
 
-              // ── Tombol Regen Kode ─────────────────────────
               SizedBox(
                 width : double.infinity,
                 child : _ActionButton(
@@ -395,7 +388,6 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
               ),
               const SizedBox(height: 10),
 
-              // ── Tombol Akhiri Sesi ────────────────────────
               SizedBox(
                 width : double.infinity,
                 child : _ActionButton(
@@ -406,7 +398,7 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
                   onPressed: _tutupSesi,
                 ),
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 16),
             ],
           ),
         ),
@@ -414,8 +406,6 @@ class _KodeDisplayScreenState extends State<KodeDisplayScreen> {
     );
   }
 }
-
-// ── Reusable action button ────────────────────────────────────
 
 class _ActionButton extends StatelessWidget {
   final String   label;

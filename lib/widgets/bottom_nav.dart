@@ -1,6 +1,6 @@
 // lib/widgets/bottom_nav.dart
-// Widget navigasi utama aplikasi dengan 5 tab
-// Menggantikan direct routing ke /scan setelah login
+// FIX: tambah resizeToAvoidBottomInset: false di Scaffold MainScreen
+// agar "BOTTOM OVERFLOWED BY 6.0 PIXELS" tidak muncul
 
 import 'package:flutter/material.dart';
 
@@ -9,8 +9,6 @@ import 'package:presensi_app/screens/jadwal_screen.dart';
 import 'package:presensi_app/screens/scan_screen.dart';
 import 'package:presensi_app/screens/riwayat_screen.dart';
 import 'package:presensi_app/screens/profil_screen.dart';
-
-// ─── Definisi tab ─────────────────────────────────────────────
 
 class _TabItem {
   final String label;
@@ -52,10 +50,7 @@ const List<_TabItem> _tabs = [
   ),
 ];
 
-// ─── MainScreen — wrapper dengan BottomNavigationBar ─────────
-
 class MainScreen extends StatefulWidget {
-  /// Index tab awal (default: 0 = Beranda)
   final int initialIndex;
 
   const MainScreen({super.key, this.initialIndex = 0});
@@ -67,11 +62,8 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen>
     with SingleTickerProviderStateMixin {
   late int _currentIndex;
-
-  // Gunakan PageController agar transisi antar halaman mulus
   late final PageController _pageController;
 
-  // Daftar halaman sesuai urutan tab
   static const List<Widget> _pages = [
     HomeScreen(),
     JadwalScreen(),
@@ -94,8 +86,7 @@ class _MainScreenState extends State<MainScreen>
   }
 
   void _onTabTapped(int index) {
-    if (_currentIndex == index) return; // tidak perlu animasi jika tab sama
-
+    if (_currentIndex == index) return;
     setState(() => _currentIndex = index);
     _pageController.animateToPage(
       index,
@@ -107,15 +98,14 @@ class _MainScreenState extends State<MainScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // Konten halaman (PageView untuk transisi mulus)
+      // ✅ FIX: mencegah overflow saat keyboard muncul
+      resizeToAvoidBottomInset: false,
       body: PageView(
-        controller            : _pageController,
-        physics               : const NeverScrollableScrollPhysics(), // swipe dinonaktifkan
-        onPageChanged         : (i) => setState(() => _currentIndex = i),
-        children              : _pages,
+        controller  : _pageController,
+        physics     : const NeverScrollableScrollPhysics(),
+        onPageChanged: (i) => setState(() => _currentIndex = i),
+        children    : _pages,
       ),
-
-      // Bottom navigation bar
       bottomNavigationBar: _BottomNav(
         currentIndex: _currentIndex,
         onTap       : _onTabTapped,
@@ -123,8 +113,6 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 }
-
-// ─── Widget BottomNav ─────────────────────────────────────────
 
 class _BottomNav extends StatelessWidget {
   final int currentIndex;
@@ -137,8 +125,7 @@ class _BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme  = Theme.of(context);
-    final active = const Color(0xFF1E3A5F);
+    const active = Color(0xFF1E3A5F);
 
     return Container(
       decoration: BoxDecoration(
@@ -154,14 +141,13 @@ class _BottomNav extends StatelessWidget {
       child: SafeArea(
         top  : false,
         child: SizedBox(
-          height: 64,
+          height: 60,
           child : Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(_tabs.length, (i) {
               final tab      = _tabs[i];
               final selected = i == currentIndex;
 
-              // Tab tengah (Scan) — tampilan khusus menonjol
               if (i == 2) {
                 return _ScanTabButton(
                   selected: selected,
@@ -185,8 +171,6 @@ class _BottomNav extends StatelessWidget {
   }
 }
 
-// ─── Item navigasi biasa ──────────────────────────────────────
-
 class _NavItem extends StatelessWidget {
   final String   label;
   final IconData icon;
@@ -207,19 +191,18 @@ class _NavItem extends StatelessWidget {
     return GestureDetector(
       onTap    : onTap,
       behavior : HitTestBehavior.opaque,
-      child    : AnimatedContainer(
-        duration : const Duration(milliseconds: 200),
-        padding  : const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        child    : Column(
+      child    : Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(
           mainAxisSize     : MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             AnimatedContainer(
               duration  : const Duration(milliseconds: 200),
-              padding   : const EdgeInsets.all(6),
+              padding   : const EdgeInsets.all(5),
               decoration: BoxDecoration(
                 color       : selected ? color.withOpacity(0.1) : Colors.transparent,
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 icon,
@@ -244,8 +227,6 @@ class _NavItem extends StatelessWidget {
   }
 }
 
-// ─── Tab scan — tombol menonjol di tengah ─────────────────────
-
 class _ScanTabButton extends StatelessWidget {
   final bool   selected;
   final Color  color;
@@ -268,8 +249,8 @@ class _ScanTabButton extends StatelessWidget {
         children: [
           AnimatedContainer(
             duration  : const Duration(milliseconds: 250),
-            width     : 52,
-            height    : 52,
+            width     : 50,
+            height    : 50,
             decoration: BoxDecoration(
               color      : selected ? color : color.withOpacity(0.85),
               shape      : BoxShape.circle,
@@ -278,17 +259,17 @@ class _ScanTabButton extends StatelessWidget {
                   color     : color.withOpacity(0.35),
                   blurRadius: selected ? 16 : 8,
                   spreadRadius: selected ? 2 : 0,
-                  offset    : const Offset(0, 4),
+                  offset    : const Offset(0, 3),
                 ),
               ],
             ),
             child: Icon(
               selected ? Icons.face_rounded : Icons.face_outlined,
               color: Colors.white,
-              size : 26,
+              size : 24,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 3),
           Text(
             'Scan',
             style: TextStyle(

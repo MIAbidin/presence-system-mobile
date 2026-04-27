@@ -1,4 +1,6 @@
 // lib/screens/scan_screen.dart
+// FIX: imageFormatGroup → yuv420 (wajib untuk ML Kit di Android)
+// FIX: _buildInputImage gabungkan semua plane bytes seperti register_face_screen
 
 import 'dart:convert';
 import 'dart:typed_data';
@@ -32,25 +34,20 @@ class _ScanScreenState extends State<ScanScreen>
 
   // ── Face detection ────────────────────────────────────────
   final FaceDetector _faceDetector = FaceDetector(
-    options: FaceDetectorOptions(minFaceSize: 0.25),
+    options: FaceDetectorOptions(minFaceSize: 0.15), // lebih sensitif
   );
   bool _faceDetected      = false;
   bool _isProcessingFrame = false;
 
   // ── State ─────────────────────────────────────────────────
   bool   _isVerifying = false;
-  String _mode        = 'offline'; // 'offline' | 'online'
-
-  // Sesi aktif (diisi dari API)
-  Map<String, dynamic>? _sesiAktif;
-  bool _loadingSesi = true;
+  String _mode        = 'offline';
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initCamera();
-    _cekSesiAktif();
   }
 
   @override
@@ -61,16 +58,13 @@ class _ScanScreenState extends State<ScanScreen>
     super.dispose();
   }
 
-  // ── Lifecycle: matikan kamera saat background, hidupkan saat resume ──
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused) {
-      // Matikan kamera saat app ke background atau tab tidak aktif
       _cameraController?.dispose();
       if (mounted) setState(() => _isCameraReady = false);
     } else if (state == AppLifecycleState.resumed) {
-      // Hidupkan kembali saat app kembali ke foreground
       _initCamera();
     }
   }
@@ -89,7 +83,8 @@ class _ScanScreenState extends State<ScanScreen>
         frontCam,
         ResolutionPreset.medium,
         enableAudio: false,
-        imageFormatGroup: ImageFormatGroup.jpeg,
+        // ✅ FIX: yuv420 wajib agar ML Kit bisa proses di Android
+        imageFormatGroup: ImageFormatGroup.yuv420,
       );
       await _cameraController!.initialize();
       if (mounted) {
@@ -129,8 +124,12 @@ class _ScanScreenState extends State<ScanScreen>
       final format = InputImageFormatValue.fromRawValue(image.format.raw);
       if (format == null) return null;
 
+      // ✅ FIX: gabungkan SEMUA plane bytes (sama seperti register_face_screen)
       final bytes = Uint8List.fromList(
-        image.planes.expand((plane) => plane.bytes).toList(),
+        image.planes.fold<List<int>>(
+          [],
+          (allBytes, plane) => allBytes..addAll(plane.bytes),
+        ),
       );
 
       return InputImage.fromBytes(
@@ -145,16 +144,6 @@ class _ScanScreenState extends State<ScanScreen>
     } catch (e) {
       debugPrint('InputImage error: $e');
       return null;
-    }
-  }
-
-  // ── Cek sesi aktif dari backend ───────────────────────────
-  Future<void> _cekSesiAktif() async {
-    setState(() => _loadingSesi = true);
-    try {
-      setState(() => _loadingSesi = false);
-    } catch (_) {
-      setState(() => _loadingSesi = false);
     }
   }
 
@@ -203,13 +192,11 @@ class _ScanScreenState extends State<ScanScreen>
     try {
       await _cameraController!.stopImageStream();
 
-      // Ambil foto
       final XFile foto  = await _cameraController!.takePicture();
       final bytes       = await foto.readAsBytes();
 
       double? lat, lng;
 
-      // Ambil GPS untuk mode offline
       if (_mode == 'offline') {
         final pos = await _getGps();
         if (pos == null) {
@@ -221,7 +208,6 @@ class _ScanScreenState extends State<ScanScreen>
         lng = pos.longitude;
       }
 
-      // Kirim ke backend
       final fields = <String, String>{
         'sesi_id': sesiId ?? '',
         if (kodeSesi != null) 'kode_sesi': kodeSesi,
@@ -279,7 +265,6 @@ class _ScanScreenState extends State<ScanScreen>
     ));
   }
 
-  // ── Dialog pilih mode / masukkan sesi ID ─────────────────
   void _showPresensiDialog() {
     final sesiController = TextEditingController();
     String selectedMode  = _mode;
@@ -310,7 +295,6 @@ class _ScanScreenState extends State<ScanScreen>
                 ),
                 const SizedBox(height: 16),
 
-                // Toggle mode
                 Row(
                   children: [
                     Expanded(
@@ -338,7 +322,6 @@ class _ScanScreenState extends State<ScanScreen>
                 ),
                 const SizedBox(height: 16),
 
-                // Input Sesi ID
                 TextField(
                   controller : sesiController,
                   style      : const TextStyle(color: Colors.white),
@@ -358,7 +341,6 @@ class _ScanScreenState extends State<ScanScreen>
                 ),
                 const SizedBox(height: 12),
 
-                // Tombol aksi berdasarkan mode
                 if (selectedMode == 'online') ...[
                   ElevatedButton.icon(
                     onPressed: () {
@@ -404,11 +386,13 @@ class _ScanScreenState extends State<ScanScreen>
 
   @override
   Widget build(BuildContext context) {
-    super.build(context); // wajib untuk AutomaticKeepAliveClientMixin
+    super.build(context);
     final user = context.watch<AuthProvider>().currentUser;
 
     return Scaffold(
       backgroundColor: Colors.black,
+      // ✅ FIX: resizeToAvoidBottomInset = false cegah overflow
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         backgroundColor: const Color(0xFF1E3A5F),
         foregroundColor: Colors.white,
@@ -465,7 +449,6 @@ class _ScanScreenState extends State<ScanScreen>
             child: Stack(
               alignment: Alignment.center,
               children: [
-                // Camera preview atau loading
                 if (_isCameraReady && _cameraController != null)
                   SizedBox.expand(child: CameraPreview(_cameraController!))
                 else
@@ -483,7 +466,6 @@ class _ScanScreenState extends State<ScanScreen>
                     ),
                   ),
 
-                // Overlay lingkaran wajah
                 CustomPaint(
                   size   : Size.infinite,
                   painter: FaceOverlayPainter(faceDetected: _faceDetected),
@@ -521,7 +503,6 @@ class _ScanScreenState extends State<ScanScreen>
                   ),
                 ),
 
-                // Loading overlay saat verifikasi
                 if (_isVerifying)
                   Container(
                     color: Colors.black.withOpacity(0.7),
@@ -546,18 +527,23 @@ class _ScanScreenState extends State<ScanScreen>
           // ── Tombol presensi ───────────────────────────────
           Container(
             color  : const Color(0xFF111827),
-            padding: const EdgeInsets.all(20),
+            // ✅ FIX: SafeArea bottom agar tidak overflow dengan nav bar
+            padding: EdgeInsets.fromLTRB(
+              20, 16, 20,
+              16 + MediaQuery.of(context).padding.bottom,
+            ),
             child  : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
               children: [
                 const Text(
                   'Pastikan wajah berada di dalam lingkaran sebelum scan',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: Colors.white54, fontSize: 13),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
                 SizedBox(
-                  height: 56,
+                  height: 52,
                   child : ElevatedButton.icon(
                     onPressed: (_isVerifying || !_faceDetected || !_isCameraReady)
                         ? null
@@ -586,7 +572,7 @@ class _ScanScreenState extends State<ScanScreen>
   }
 }
 
-// ── Widget kartu mode ────────────────────────────────────────
+// ── Widget kartu mode ─────────────────────────────────────────
 
 class _ModeCard extends StatelessWidget {
   final String   label;
