@@ -180,59 +180,51 @@ class _ScanScreenState extends State<ScanScreen>
   }
 
   // ── Proses verifikasi wajah & presensi ────────────────────
-  Future<void> _verifikasiWajah({String? sesiId, String? kodeSesi}) async {
+  Future<void> _verifikasiWajahOffline() async {
     if (_isVerifying || _cameraController == null || !_isCameraReady) return;
     if (!_faceDetected) {
       _showSnack('Wajah belum terdeteksi', isError: true);
       return;
     }
-
+ 
     setState(() => _isVerifying = true);
-
+ 
     try {
       await _cameraController!.stopImageStream();
-
-      final XFile foto  = await _cameraController!.takePicture();
-      final bytes       = await foto.readAsBytes();
-
-      double? lat, lng;
-
-      if (_mode == 'offline') {
-        final pos = await _getGps();
-        if (pos == null) {
-          setState(() => _isVerifying = false);
-          _startFaceDetection();
-          return;
-        }
-        lat = pos.latitude;
-        lng = pos.longitude;
+      final XFile foto = await _cameraController!.takePicture();
+      final bytes      = await foto.readAsBytes();
+ 
+      // Ambil GPS
+      final pos = await _getGps();
+      if (pos == null) {
+        setState(() => _isVerifying = false);
+        _startFaceDetection();
+        return;
       }
-
-      final fields = <String, String>{
-        'sesi_id': sesiId ?? '',
-        if (kodeSesi != null) 'kode_sesi': kodeSesi,
-        if (lat != null) 'latitude': lat.toString(),
-        if (lng != null) 'longitude': lng.toString(),
-      };
-
+ 
+      // ✅ Pakai /presensi/simple — tidak perlu sesi_id
       final response = await ApiClient().postMultipart(
-        '/presensi',
-        fields   : fields,
+        '/presensi/simple',
+        fields: {
+          'latitude' : pos.latitude.toString(),
+          'longitude': pos.longitude.toString(),
+          // kode_sesi tidak diisi → backend tahu ini offline
+        },
         fileField: 'foto',
         fileBytes: bytes,
-        filename : 'scan_${DateTime.now().millisecondsSinceEpoch}.jpg',
+        filename : 'scan_offline_${DateTime.now().millisecondsSinceEpoch}.jpg',
       );
-
+ 
       final body = jsonDecode(response.body) as Map<String, dynamic>;
-
+ 
       if (mounted) {
         context.go('/hasil', extra: {
-          'success'     : response.statusCode == 200,
-          'status'      : body['status'] ?? '',
-          'akurasi'     : body['akurasi_wajah'] ?? 0.0,
-          'waktu'       : body['waktu_presensi'] ?? '',
-          'mode'        : body['mode_kelas'] ?? _mode,
-          'pesan'       : response.statusCode == 200
+          'success': response.statusCode == 200,
+          'status' : body['status']         ?? '',
+          'akurasi': (body['akurasi_wajah'] as num?)?.toDouble() ?? 0.0,
+          'waktu'  : body['waktu_presensi'] ?? '',
+          'mode'   : 'offline',
+          'pesan'  : response.statusCode == 200
               ? (body['pesan'] ?? 'Presensi berhasil!')
               : (body['detail'] ?? 'Presensi gagal'),
         });
@@ -242,10 +234,7 @@ class _ScanScreenState extends State<ScanScreen>
         context.go('/hasil', extra: {
           'success': false,
           'pesan'  : 'Error: $e',
-          'status' : '',
-          'akurasi': 0.0,
-          'waktu'  : '',
-          'mode'   : _mode,
+          'status' : '', 'akurasi': 0.0, 'waktu': '', 'mode': 'offline',
         });
       }
     } finally {
@@ -266,119 +255,92 @@ class _ScanScreenState extends State<ScanScreen>
   }
 
   void _showPresensiDialog() {
-    final sesiController = TextEditingController();
-    String selectedMode  = _mode;
-
     showModalBottomSheet(
-      context      : context,
+      context           : context,
       isScrollControlled: true,
       backgroundColor   : Colors.transparent,
-      builder: (ctx) => StatefulBuilder(
-        builder: (ctx, setModalState) => Container(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(ctx).viewInsets.bottom,
-          ),
-          decoration: const BoxDecoration(
-            color        : Color(0xFF1E293B),
-            borderRadius : BorderRadius.vertical(top: Radius.circular(20)),
-          ),
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                const Text(
-                  'Mode Presensi',
-                  style: TextStyle(
-                    color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
-                ),
-                const SizedBox(height: 16),
-
-                Row(
-                  children: [
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => setModalState(() => selectedMode = 'offline'),
-                        child: _ModeCard(
-                          label    : 'Offline (Tatap Muka)',
-                          icon     : Icons.location_on_rounded,
-                          selected : selectedMode == 'offline',
-                        ),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: GestureDetector(
-                        onTap: () => setModalState(() => selectedMode = 'online'),
-                        child: _ModeCard(
-                          label    : 'Online (Daring)',
-                          icon     : Icons.video_call_rounded,
-                          selected : selectedMode == 'online',
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 16),
-
-                TextField(
-                  controller : sesiController,
-                  style      : const TextStyle(color: Colors.white),
-                  decoration : InputDecoration(
-                    labelText     : 'Session ID (UUID dari backend)',
-                    labelStyle    : const TextStyle(color: Colors.white54),
-                    hintText      : 'Contoh: 550e8400-e29b-41d4-a716-446655440000',
-                    hintStyle     : const TextStyle(color: Colors.white30, fontSize: 12),
-                    filled        : true,
-                    fillColor     : Colors.white.withOpacity(0.08),
-                    border        : OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(10),
-                      borderSide  : BorderSide.none,
-                    ),
-                    prefixIcon    : const Icon(Icons.key, color: Colors.white54),
-                  ),
-                ),
-                const SizedBox(height: 12),
-
-                if (selectedMode == 'online') ...[
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      setState(() => _mode = selectedMode);
-                      context.go('/kode-sesi', extra: sesiController.text.trim());
-                    },
-                    icon : const Icon(Icons.pin_outlined),
-                    label: const Text('Masukkan Kode Sesi'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF1E3A5F),
-                      foregroundColor: Colors.white,
-                      padding        : const EdgeInsets.symmetric(vertical: 14),
-                      shape          : RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ] else ...[
-                  ElevatedButton.icon(
-                    onPressed: () {
-                      Navigator.pop(ctx);
-                      setState(() => _mode = selectedMode);
-                      _verifikasiWajah(sesiId: sesiController.text.trim());
-                    },
-                    icon : const Icon(Icons.face_rounded),
-                    label: const Text('Verifikasi Wajah Sekarang'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.green.shade700,
-                      foregroundColor: Colors.white,
-                      padding        : const EdgeInsets.symmetric(vertical: 14),
-                      shape          : RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(12)),
-                    ),
-                  ),
-                ],
-              ],
+      builder: (ctx) => Container(
+        padding: EdgeInsets.only(
+          left: 24, right: 24, top: 24,
+          bottom: 24 + MediaQuery.of(ctx).padding.bottom,
+        ),
+        decoration: const BoxDecoration(
+          color       : Color(0xFF1E293B),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            const Text(
+              'Pilih Mode Presensi',
+              style: TextStyle(
+                color: Colors.white, fontSize: 18, fontWeight: FontWeight.bold),
+              textAlign: TextAlign.center,
             ),
-          ),
+            const SizedBox(height: 6),
+            const Text(
+              'Sistem otomatis mencari sesi yang sedang aktif',
+              style: TextStyle(color: Colors.white54, fontSize: 13),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 24),
+ 
+            // ── Tombol Offline ────────────────────────────
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                _verifikasiWajahOffline();
+              },
+              icon : const Icon(Icons.location_on_rounded, size: 22),
+              label: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Tatap Muka (Offline)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  Text('Validasi GPS lokasi kelas',
+                    style: TextStyle(fontSize: 11, color: Colors.white70)),
+                ],
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF1E3A5F),
+                foregroundColor: Colors.white,
+                padding        : const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                alignment      : Alignment.centerLeft,
+                shape          : RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+            const SizedBox(height: 12),
+ 
+            // ── Tombol Online ─────────────────────────────
+            ElevatedButton.icon(
+              onPressed: () {
+                Navigator.pop(ctx);
+                context.go('/kode-sesi');
+              },
+              icon : const Icon(Icons.video_call_rounded, size: 22),
+              label: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('Daring (Online)',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15)),
+                  Text('Masukkan kode sesi dari dosen',
+                    style: TextStyle(fontSize: 11, color: Colors.white70)),
+                ],
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.purple.shade700,
+                foregroundColor: Colors.white,
+                padding        : const EdgeInsets.fromLTRB(16, 14, 16, 14),
+                alignment      : Alignment.centerLeft,
+                shape          : RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
+              ),
+            ),
+          ],
         ),
       ),
     );

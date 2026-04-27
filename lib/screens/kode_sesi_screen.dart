@@ -150,36 +150,31 @@ class _KodeSesiScreenState extends State<KodeSesiScreen> {
   }
 
   // ── Scan wajah & kirim presensi ───────────────────────────
+  // Tidak perlu sesi_id sama sekali!
+ 
   Future<void> _scanWajah() async {
     if (_isScanning || !_faceDetected || _cameraController == null) return;
     setState(() => _isScanning = true);
-
+ 
     try {
       await _cameraController!.stopImageStream();
       final XFile foto = await _cameraController!.takePicture();
       final bytes      = await foto.readAsBytes();
-
-      final sesiId = _infoSesi?['id'] as String? ?? widget.sesiId ?? '';
-
-      if (sesiId.isEmpty) {
-        _showSnack('Session ID tidak ditemukan, masukkan kode lagi', isError: true);
-        setState(() { _kodeOk = false; _kode = ''; _isValid = false; });
-        return;
-      }
-
+ 
+      // ✅ Pakai /presensi/simple — tidak perlu sesi_id
       final response = await ApiClient().postMultipart(
-        '/presensi',
+        '/presensi/simple',
         fields   : {
-          'sesi_id'  : sesiId,
           'kode_sesi': _kode.toUpperCase(),
+          // latitude & longitude tidak perlu untuk online
         },
         fileField: 'foto',
         fileBytes: bytes,
         filename : 'scan_online_${DateTime.now().millisecondsSinceEpoch}.jpg',
       );
-
+ 
       final body = jsonDecode(response.body) as Map<String, dynamic>;
-
+ 
       if (mounted) {
         context.go('/hasil', extra: {
           'success': response.statusCode == 200,
