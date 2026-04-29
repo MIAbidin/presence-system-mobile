@@ -1,6 +1,5 @@
 // lib/screens/dosen/beranda_dosen_screen.dart
-// Fase 4 — Beranda dosen dengan jadwal hari ini + semua matakuliah
-// FIX: pertemuan_ke dari server, ApiException, onTampilKode extra lengkap
+// Fase 5 UPDATE: onTap card matakuliah sekarang navigasi ke DetailMatakuliahScreen
 
 import 'dart:async';
 import 'dart:convert';
@@ -34,7 +33,7 @@ class JadwalHariIniItem {
   final String? ruangan;
   final bool    izinTamu;
   final int     jumlahMahasiswa;
-  final String  statusSesi;       // belum_mulai | aktif | selesai
+  final String  statusSesi;
   final String? sesiId;
   final int?    pertemuanKe;
   final String? kodeSesi;
@@ -151,10 +150,7 @@ class MatakuliahRingkasan {
 // ─── BerandaDosenScreen ───────────────────────────────────────
 
 class BerandaDosenScreen extends StatefulWidget {
-  /// Callback ke MainDosenScreen: pindah ke tab Monitor dengan sesiId
   final void Function(String? sesiId)? onGoToMonitor;
-
-  /// Callback ke MainDosenScreen: update badge sesi aktif
   final void Function(bool)? onSesiAktifChanged;
 
   const BerandaDosenScreen({
@@ -215,12 +211,10 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
           .map((e) => MatakuliahRingkasan.fromJson(e as Map<String, dynamic>))
           .toList();
 
-      // Cek apakah ada sesi aktif → update badge
       final adaAktif = jadwal.any((j) => j.statusSesi == 'aktif') ||
           semua.any((mk) => mk.adaSesiAktif);
       widget.onSesiAktifChanged?.call(adaAktif);
 
-      // Init countdown dari data server
       final newMap = <String, int>{};
       for (final j in jadwal) {
         if (j.sesiId != null &&
@@ -279,7 +273,6 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
   }
 
-  // ── Buka sesi via bottom sheet ────────────────────────────
   void _showBukaSesiSheet(JadwalHariIniItem jadwal) {
     showModalBottomSheet(
       context           : context,
@@ -289,15 +282,13 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
         jadwal    : jadwal,
         onBerhasil: (sesiData) {
           Navigator.pop(ctx);
-          _fetchBeranda(); // Refresh data beranda
+          _fetchBeranda();
           final mode   = sesiData['mode'] as String? ?? '';
           final sesiId = sesiData['id']   as String?;
 
           if (mode == 'online') {
-            // Navigasi ke kode display (standalone)
             context.go('/dosen/kode', extra: sesiData);
           } else {
-            // Pindah ke tab Monitor dengan sesi baru
             widget.onGoToMonitor?.call(sesiId);
           }
         },
@@ -327,7 +318,6 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
 
     return CustomScrollView(
       slivers: [
-        // ── SliverAppBar ────────────────────────────────────
         SliverAppBar(
           expandedHeight: 150,
           pinned        : true,
@@ -388,7 +378,6 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
           title: const Text('Beranda',
             style: TextStyle(color: Colors.white, fontSize: 18)),
           titleSpacing: 20,
-          // Tombol refresh di kanan
           actions: [
             IconButton(
               icon     : const Icon(Icons.refresh_rounded, color: Colors.white),
@@ -398,7 +387,6 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
           ],
         ),
 
-        // ── Tanggal ─────────────────────────────────────────
         SliverToBoxAdapter(
           child: Container(
             color  : _kNavy,
@@ -418,13 +406,11 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
           ),
         ),
 
-        // ── Konten ──────────────────────────────────────────
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 100),
           sliver : SliverList(
             delegate: SliverChildListDelegate([
 
-              // Jadwal hari ini
               _SectionHeader(
                 title   : '📅 Jadwal $_hariIni',
                 subtitle: '${_jadwalHariIni.length} matakuliah',
@@ -452,7 +438,6 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
                   },
                   onTampilKode: () {
                     if (j.sesiId == null) return;
-                    // FIX: extra lengkap dengan semua field yang dibutuhkan
                     context.go('/dosen/kode', extra: {
                       'id'           : j.sesiId,
                       'sesi_id'      : j.sesiId,
@@ -462,11 +447,13 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
                       'mode'         : 'online',
                     });
                   },
+                  // ── BARU Fase 5: navigasi ke detail matakuliah ──
+                  onDetailMatakuliah: () =>
+                      context.go('/dosen/matakuliah/${j.matakuliahId}'),
                 )),
 
               const SizedBox(height: 24),
 
-              // Semua matakuliah
               _SectionHeader(
                 title   : '📚 Semua Matakuliah',
                 subtitle: '${_semuaMatakuliah.length} matakuliah',
@@ -482,17 +469,9 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
               else
                 ..._semuaMatakuliah.map((mk) => _MatakuliahCard(
                   mk        : mk,
-                  onTap     : () {
-                    // Fase 5 nanti → detail matakuliah
-                    // Untuk sekarang cukup tampilkan snackbar
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Detail ${mk.nama} — akan hadir di Fase 5'),
-                        behavior: SnackBarBehavior.floating,
-                        duration: const Duration(seconds: 2),
-                      ),
-                    );
-                  },
+                  // ── BARU Fase 5: navigasi ke detail matakuliah ──
+                  onTap     : () =>
+                      context.go('/dosen/matakuliah/${mk.matakuliahId}'),
                   onSesiAktif: () =>
                       widget.onGoToMonitor?.call(mk.sesiId),
                 )),
@@ -536,13 +515,14 @@ class _SectionHeader extends StatelessWidget {
 // ─── Card jadwal hari ini ─────────────────────────────────────
 
 class _JadwalCard extends StatelessWidget {
-  final JadwalHariIniItem  jadwal;
-  final int?               countdownDetik;
+  final JadwalHariIniItem    jadwal;
+  final int?                 countdownDetik;
   final String Function(int) formatCountdown;
   final VoidCallback onBukaSesi;
   final VoidCallback onMonitor;
   final VoidCallback onRekap;
   final VoidCallback onTampilKode;
+  final VoidCallback onDetailMatakuliah; // ← BARU Fase 5
 
   const _JadwalCard({
     required this.jadwal,
@@ -552,6 +532,7 @@ class _JadwalCard extends StatelessWidget {
     required this.onMonitor,
     required this.onRekap,
     required this.onTampilKode,
+    required this.onDetailMatakuliah,
   });
 
   Color get _statusColor {
@@ -595,100 +576,112 @@ class _JadwalCard extends StatelessWidget {
       ),
       child: Column(
         children: [
-          // Header
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  width: 4, height: 60,
-                  decoration: BoxDecoration(
-                    color       : _statusColor,
-                    borderRadius: BorderRadius.circular(2)),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: _kNavy.withOpacity(0.08),
-                              borderRadius: BorderRadius.circular(6)),
-                            child: Text(jadwal.kode,
-                              style: const TextStyle(
-                                color: _kNavy, fontSize: 11,
-                                fontWeight: FontWeight.bold)),
-                          ),
-                          const SizedBox(width: 6),
-                          Text('${jadwal.sks} SKS',
-                            style: TextStyle(
-                              color: Colors.grey.shade400,
-                              fontSize: 11)),
-                          const Spacer(),
-                          // Badge status
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
-                            decoration: BoxDecoration(
-                              color: _statusColor.withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(10)),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                if (isAktif) ...[
-                                  _PulseDot(color: _statusColor),
-                                  const SizedBox(width: 4),
-                                ],
-                                Text(_statusLabel,
-                                  style: TextStyle(
-                                    color: _statusColor, fontSize: 10,
-                                    fontWeight: FontWeight.bold)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 6),
-                      Text(jadwal.nama,
-                        style: const TextStyle(
-                          color: _kNavy, fontSize: 15,
-                          fontWeight: FontWeight.bold),
-                        overflow: TextOverflow.ellipsis),
-                      const SizedBox(height: 6),
-                      Row(
-                        children: [
-                          Icon(Icons.access_time_rounded,
-                            size: 13, color: Colors.grey.shade500),
-                          const SizedBox(width: 4),
-                          Text(jadwal.labelJam,
-                            style: TextStyle(
-                              color: Colors.grey.shade600, fontSize: 12)),
-                          const SizedBox(width: 10),
-                          Icon(Icons.room_outlined,
-                            size: 13, color: Colors.grey.shade500),
-                          const SizedBox(width: 4),
-                          Expanded(
-                            child: Text(jadwal.labelRuangan,
-                              style: TextStyle(
-                                color: Colors.grey.shade600, fontSize: 12),
-                              overflow: TextOverflow.ellipsis),
-                          ),
-                        ],
-                      ),
-                    ],
+          // Header — tap untuk ke detail matakuliah
+          InkWell(
+            onTap       : onDetailMatakuliah,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 4, height: 60,
+                    decoration: BoxDecoration(
+                      color       : _statusColor,
+                      borderRadius: BorderRadius.circular(2)),
                   ),
-                ),
-              ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: _kNavy.withOpacity(0.08),
+                                borderRadius: BorderRadius.circular(6)),
+                              child: Text(jadwal.kode,
+                                style: const TextStyle(
+                                  color: _kNavy, fontSize: 11,
+                                  fontWeight: FontWeight.bold)),
+                            ),
+                            const SizedBox(width: 6),
+                            Text('${jadwal.sks} SKS',
+                              style: TextStyle(
+                                color: Colors.grey.shade400,
+                                fontSize: 11)),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 3),
+                              decoration: BoxDecoration(
+                                color: _statusColor.withOpacity(0.12),
+                                borderRadius: BorderRadius.circular(10)),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (isAktif) ...[
+                                    _PulseDot(color: _statusColor),
+                                    const SizedBox(width: 4),
+                                  ],
+                                  Text(_statusLabel,
+                                    style: TextStyle(
+                                      color: _statusColor, fontSize: 10,
+                                      fontWeight: FontWeight.bold)),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(jadwal.nama,
+                                style: const TextStyle(
+                                  color: _kNavy, fontSize: 15,
+                                  fontWeight: FontWeight.bold),
+                                overflow: TextOverflow.ellipsis),
+                            ),
+                            // Ikon detail → ke halaman detail matakuliah
+                            Icon(Icons.info_outline_rounded,
+                              size : 16,
+                              color: Colors.grey.shade400),
+                          ],
+                        ),
+                        const SizedBox(height: 6),
+                        Row(
+                          children: [
+                            Icon(Icons.access_time_rounded,
+                              size: 13, color: Colors.grey.shade500),
+                            const SizedBox(width: 4),
+                            Text(jadwal.labelJam,
+                              style: TextStyle(
+                                color: Colors.grey.shade600, fontSize: 12)),
+                            const SizedBox(width: 10),
+                            Icon(Icons.room_outlined,
+                              size: 13, color: Colors.grey.shade500),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(jadwal.labelRuangan,
+                                style: TextStyle(
+                                  color: Colors.grey.shade600, fontSize: 12),
+                                overflow: TextOverflow.ellipsis),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
 
-          // Info bawah header
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Row(
@@ -726,7 +719,6 @@ class _JadwalCard extends StatelessWidget {
             ),
           ),
 
-          // Kode countdown (online aktif)
           if (isAktif &&
               jadwal.kodeSesi != null &&
               countdownDetik != null)
@@ -818,7 +810,6 @@ class _JadwalCard extends StatelessWidget {
       return Row(
         children: [
           Expanded(
-            flex: 2,
             child: _ActionBtn(
               label    : 'Lihat Rekap',
               icon     : Icons.summarize_rounded,
@@ -827,17 +818,40 @@ class _JadwalCard extends StatelessWidget {
               onPressed: onRekap,
             ),
           ),
+          const SizedBox(width: 8),
+          _ActionBtn(
+            label    : 'Detail',
+            icon     : Icons.school_outlined,
+            color    : _kNavy,
+            filled   : false,
+            onPressed: onDetailMatakuliah,
+          ),
         ],
       );
     }
 
     // belum_mulai
-    return _ActionBtn(
-      label    : 'Buka Sesi',
-      icon     : Icons.play_circle_rounded,
-      color    : _kNavy,
-      filled   : true,
-      onPressed: onBukaSesi,
+    return Row(
+      children: [
+        Expanded(
+          flex: 2,
+          child: _ActionBtn(
+            label    : 'Buka Sesi',
+            icon     : Icons.play_circle_rounded,
+            color    : _kNavy,
+            filled   : true,
+            onPressed: onBukaSesi,
+          ),
+        ),
+        const SizedBox(width: 8),
+        _ActionBtn(
+          label    : 'Detail',
+          icon     : Icons.school_outlined,
+          color    : _kNavy,
+          filled   : false,
+          onPressed: onDetailMatakuliah,
+        ),
+      ],
     );
   }
 }
@@ -917,11 +931,11 @@ class _ActionBtn extends StatelessWidget {
   }
 }
 
-// ─── Card matakuliah ──────────────────────────────────────────
+// ─── Card matakuliah (tap → detail) ──────────────────────────
 
 class _MatakuliahCard extends StatelessWidget {
   final MatakuliahRingkasan mk;
-  final VoidCallback        onTap;
+  final VoidCallback        onTap;        // ← sekarang ke detail matakuliah
   final VoidCallback        onSesiAktif;
 
   const _MatakuliahCard({
@@ -1006,6 +1020,7 @@ class _MatakuliahCard extends StatelessWidget {
                 ),
               )
             else
+              // Ikon panah → memberi sinyal "bisa tap ke detail"
               Icon(Icons.chevron_right_rounded,
                 color: Colors.grey.shade300, size: 20),
           ],
@@ -1033,7 +1048,7 @@ class _BukaSesiBottomSheet extends StatefulWidget {
 
 class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
   String _mode            = 'offline';
-  int?   _batasTerlambat  = 15;   // null = tidak ada batas
+  int?   _batasTerlambat  = 15;
   int    _durasiKode      = 30;
   bool   _mulaiDariJadwal = true;
   bool   _isLoading       = false;
@@ -1048,7 +1063,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
   }
 
   Future<void> _bukaSesi() async {
-    // FIX: validasi pertemuan_ke tidak null
     final pertemuanKe = widget.jadwal.pertemuanKe;
     if (pertemuanKe == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1114,7 +1128,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
           mainAxisSize      : MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Handle bar
             Center(
               child: Container(
                 width : 36, height: 4,
@@ -1138,7 +1151,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
             const Divider(),
             const SizedBox(height: 16),
 
-            // Info pertemuan dari server
             _SheetInfoRow(
               label: 'Pertemuan ke',
               value: widget.jadwal.pertemuanKe != null
@@ -1147,7 +1159,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
             ),
             const SizedBox(height: 12),
 
-            // Toggle waktu mulai
             Row(
               children: [
                 Expanded(
@@ -1178,7 +1189,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
             ),
             const SizedBox(height: 16),
 
-            // Mode
             const Text('Mode Kelas',
               style: TextStyle(
                 color: _kNavy, fontSize: 13,
@@ -1207,7 +1217,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
             ),
             const SizedBox(height: 16),
 
-            // Toleransi terlambat
             const Text('Toleransi Terlambat',
               style: TextStyle(
                 color: _kNavy, fontSize: 13,
@@ -1229,7 +1238,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
             ),
             const SizedBox(height: 16),
 
-            // Durasi kode online
             if (_mode == 'online') ...[
               const Text('Durasi Kode Aktif',
                 style: TextStyle(

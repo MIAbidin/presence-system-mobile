@@ -15,6 +15,7 @@ import 'package:presensi_app/widgets/bottom_nav.dart';
 import 'package:presensi_app/screens/dosen/main_dosen_screen.dart';
 import 'package:presensi_app/screens/dosen/kode_display_screen.dart';
 import 'package:presensi_app/screens/dosen/rekap_screen.dart';
+import 'package:presensi_app/screens/dosen/detail_matakuliah_screen.dart'; // ← BARU Fase 5
 
 // Halaman loading saat cek auth
 class _SplashScreen extends StatelessWidget {
@@ -163,7 +164,7 @@ GoRouter createRouter(AuthProvider authProvider) {
       ),
 
       // ─────────────────────────────────────────────────────
-      // DOSEN — Tab navigation shell (Opsi A: 4 tab)
+      // DOSEN — Tab navigation shell (4 tab)
       // ─────────────────────────────────────────────────────
 
       // Tab 0: Beranda
@@ -176,7 +177,6 @@ GoRouter createRouter(AuthProvider authProvider) {
       GoRoute(
         path   : '/dosen/monitor',
         builder: (context, state) {
-          // Bisa bawa sesiId untuk langsung load sesi tertentu
           final extra   = state.extra as Map<String, dynamic>?;
           final sesiId  = extra?['sesi_id'] as String?
                        ?? extra?['id']      as String?;
@@ -210,7 +210,7 @@ GoRouter createRouter(AuthProvider authProvider) {
         },
       ),
 
-      // Detail rekap satu sesi (dari tab Rekap atau tab Monitor)
+      // Detail rekap satu sesi
       GoRoute(
         path   : '/dosen/rekap/:sesiId',
         builder: (context, state) {
@@ -219,13 +219,20 @@ GoRouter createRouter(AuthProvider authProvider) {
         },
       ),
 
+      // ── BARU Fase 5: Detail matakuliah dosen ──────────────
+      GoRoute(
+        path   : '/dosen/matakuliah/:mkId',
+        builder: (context, state) {
+          final mkId = state.pathParameters['mkId']!;
+          return DetailMatakuliahScreen(matakuliahId: mkId);
+        },
+      ),
+
       // ── Rute lama dosen (redirect ke shell baru) ───────────
-      // Jaga kompatibilitas jika masih ada link lama
       GoRoute(
         path    : '/dosen/dashboard',
         redirect: (context, state) {
-          final extra  = state.extra;
-          // Coba bawa extra ke /dosen/monitor
+          final extra = state.extra;
           if (extra != null) return '/dosen/monitor';
           return '/dosen/monitor';
         },
