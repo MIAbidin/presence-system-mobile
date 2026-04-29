@@ -12,8 +12,7 @@ import 'package:presensi_app/screens/hasil_screen.dart';
 import 'package:presensi_app/widgets/bottom_nav.dart';
 
 // Screens — Dosen
-import 'package:presensi_app/screens/dosen/dashboard_dosen.dart';
-import 'package:presensi_app/screens/dosen/buka_sesi_screen.dart';
+import 'package:presensi_app/screens/dosen/main_dosen_screen.dart';
 import 'package:presensi_app/screens/dosen/kode_display_screen.dart';
 import 'package:presensi_app/screens/dosen/rekap_screen.dart';
 
@@ -58,61 +57,70 @@ GoRouter createRouter(AuthProvider authProvider) {
       final user   = authProvider.currentUser;
       final loc    = state.matchedLocation;
 
-      // Masih loading → tampilkan splash, jangan redirect ke mana-mana
+      // ── Masih loading → splash ─────────────────────────
       if (status == AuthStatus.unknown) {
         return loc == '/splash' ? null : '/splash';
       }
 
-      // Dari splash → redirect ke tempat yang benar setelah auth selesai
+      // ── Dari splash → redirect sesuai status ───────────
       if (loc == '/splash') {
         if (status == AuthStatus.unauthenticated) return '/login';
-        // authenticated — cek role
-        if (user?.isDosen == true) return '/dosen/dashboard';
+        if (user?.isDosen == true)      return '/dosen/home';
         if (user?.isMahasiswa == true && !user!.isFaceRegistered) {
           return '/register-face';
         }
         return '/home';
       }
 
-      // Belum login → paksa ke login
+      // ── Belum login → paksa ke login ───────────────────
       if (status == AuthStatus.unauthenticated) {
         return loc == '/login' ? null : '/login';
       }
 
-      // Mahasiswa belum daftar wajah → paksa register face
+      // ── Mahasiswa belum daftar wajah ───────────────────
       if (user != null && user.isMahasiswa && !user.isFaceRegistered) {
         if (loc != '/register-face') return '/register-face';
         return null;
       }
 
-      // Sudah login dan masuk halaman login → redirect ke home
+      // ── Sudah login & di halaman login ─────────────────
       if (loc == '/login') {
-        return user?.isDosen == true ? '/dosen/dashboard' : '/home';
+        return user?.isDosen == true ? '/dosen/home' : '/home';
       }
 
-      // Dosen tidak boleh akses route mahasiswa
+      // ── Dosen tidak boleh akses route mahasiswa ─────────
       if (user?.isDosen == true) {
-        const mahasiswaRoutes = ['/home', '/scan', '/register-face', '/riwayat'];
-        if (mahasiswaRoutes.contains(loc)) return '/dosen/dashboard';
+        const mahasiswaRoutes = [
+          '/home', '/scan', '/register-face',
+          '/riwayat', '/jadwal', '/profil',
+        ];
+        if (mahasiswaRoutes.contains(loc)) return '/dosen/home';
+      }
+
+      // ── Mahasiswa tidak boleh akses route dosen ─────────
+      if (user?.isMahasiswa == true) {
+        if (loc.startsWith('/dosen')) return '/home';
       }
 
       return null;
     },
 
     routes: [
-      // ── Splash / Loading ──────────────────────────────────
+      // ── Splash ────────────────────────────────────────────
       GoRoute(
         path   : '/splash',
         builder: (context, state) => const _SplashScreen(),
       ),
 
-      // ── Auth ─────────────────────────────────────────────
+      // ── Auth ──────────────────────────────────────────────
       GoRoute(
         path   : '/login',
         builder: (context, state) => const LoginScreen(),
       ),
 
-      // ── Mahasiswa: Main tab navigation shell ──────────────
+      // ─────────────────────────────────────────────────────
+      // MAHASISWA — Tab navigation shell
+      // ─────────────────────────────────────────────────────
       GoRoute(
         path   : '/home',
         builder: (context, state) => const MainScreen(initialIndex: 0),
@@ -134,7 +142,7 @@ GoRouter createRouter(AuthProvider authProvider) {
         builder: (context, state) => const MainScreen(initialIndex: 4),
       ),
 
-      // ── Mahasiswa: standalone screens ─────────────────────
+      // Mahasiswa standalone screens
       GoRoute(
         path   : '/register-face',
         builder: (context, state) => const RegisterFaceScreen(),
@@ -154,18 +162,46 @@ GoRouter createRouter(AuthProvider authProvider) {
         },
       ),
 
-      // ── Dosen ─────────────────────────────────────────────
+      // ─────────────────────────────────────────────────────
+      // DOSEN — Tab navigation shell (Opsi A: 4 tab)
+      // ─────────────────────────────────────────────────────
+
+      // Tab 0: Beranda
       GoRoute(
-        path   : '/dosen/dashboard',
+        path   : '/dosen/home',
+        builder: (context, state) =>
+            const MainDosenScreen(initialIndex: 0),
+      ),
+      // Tab 1: Monitor
+      GoRoute(
+        path   : '/dosen/monitor',
         builder: (context, state) {
-          final sesiData = state.extra as Map<String, dynamic>?;
-          return DashboardDosen(sesiData: sesiData);
+          // Bisa bawa sesiId untuk langsung load sesi tertentu
+          final extra   = state.extra as Map<String, dynamic>?;
+          final sesiId  = extra?['sesi_id'] as String?
+                       ?? extra?['id']      as String?;
+          return MainDosenScreen(
+            initialIndex  : 1,
+            monitorSesiId : sesiId,
+          );
         },
       ),
+      // Tab 2: Rekap
       GoRoute(
-        path   : '/dosen/buka-sesi',
-        builder: (context, state) => const BukaSesiScreen(),
+        path   : '/dosen/rekap-list',
+        builder: (context, state) =>
+            const MainDosenScreen(initialIndex: 2),
       ),
+      // Tab 3: Profil
+      GoRoute(
+        path   : '/dosen/profil',
+        builder: (context, state) =>
+            const MainDosenScreen(initialIndex: 3),
+      ),
+
+      // ── Dosen standalone screens ───────────────────────────
+
+      // Kode display (setelah buka sesi online)
       GoRoute(
         path   : '/dosen/kode',
         builder: (context, state) {
@@ -173,12 +209,30 @@ GoRouter createRouter(AuthProvider authProvider) {
           return KodeDisplayScreen(sesiData: args);
         },
       ),
+
+      // Detail rekap satu sesi (dari tab Rekap atau tab Monitor)
       GoRoute(
         path   : '/dosen/rekap/:sesiId',
         builder: (context, state) {
           final sesiId = state.pathParameters['sesiId']!;
           return RekapScreen(sesiId: sesiId);
         },
+      ),
+
+      // ── Rute lama dosen (redirect ke shell baru) ───────────
+      // Jaga kompatibilitas jika masih ada link lama
+      GoRoute(
+        path    : '/dosen/dashboard',
+        redirect: (context, state) {
+          final extra  = state.extra;
+          // Coba bawa extra ke /dosen/monitor
+          if (extra != null) return '/dosen/monitor';
+          return '/dosen/monitor';
+        },
+      ),
+      GoRoute(
+        path    : '/dosen/buka-sesi',
+        redirect: (_, __) => '/dosen/home',
       ),
     ],
 
