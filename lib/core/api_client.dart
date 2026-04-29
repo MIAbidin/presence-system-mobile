@@ -106,6 +106,21 @@ class ApiClient {
     return _handleResponse(response);
   }
 
+  // ── DELETE ────────────────────────────────────────────────
+  Future<http.Response> delete(
+    String path, {
+    Map<String, dynamic>? body,
+  }) async {
+    final response = await http
+        .delete(
+          Uri.parse('$_baseUrl$path'),
+          headers: await _headers(),
+          body: body != null ? jsonEncode(body) : null,
+        )
+        .timeout(const Duration(seconds: 30));
+    return _handleResponse(response);
+  }
+
   // ── Response handler ──────────────────────────────────────
   http.Response _handleResponse(http.Response response) {
     if (response.statusCode >= 400) {

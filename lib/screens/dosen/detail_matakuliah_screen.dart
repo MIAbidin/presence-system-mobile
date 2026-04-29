@@ -499,7 +499,8 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
     if (confirm != true) return;
 
     try {
-      final response = await ApiClient().patch(
+      // FIX: pakai DELETE sesuai endpoint backend
+      final response = await ApiClient().delete(
         '/dosen/matakuliah/${widget.matakuliahId}/tamu/${mhs.mahasiswaId}',
       );
       if (response.statusCode == 200) {
@@ -1019,7 +1020,8 @@ class _JadwalTabState extends State<_JadwalTab>
     if (confirm != true) return;
 
     try {
-      final response = await ApiClient().patch(
+      // FIX: pakai DELETE sesuai endpoint backend
+      final response = await ApiClient().delete(
         '/dosen/matakuliah/${widget.matakuliahId}/jadwal-pengganti/${jp.pertemuanKe}',
       );
       if (response.statusCode == 200) {
