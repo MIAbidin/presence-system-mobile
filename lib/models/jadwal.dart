@@ -1,15 +1,13 @@
 // lib/models/jadwal.dart
-// Model untuk data jadwal dari endpoint GET /jadwal/hari-ini dan GET /jadwal/mingguan
-// Memetakan schema JadwalItem dari backend FastAPI (app/schemas/home.py)
+// v2.1.0 — Tambah kelasId, kodeKelas, dosenNama, slotMulai, slotSelesai, modePengganti
+// Sesuai schema JadwalItem dari backend FastAPI (app/schemas/home.py)
 
-
-/// Model satu mata kuliah dalam jadwal.
-/// Sesuai dengan JadwalItem di app/schemas/home.py
+/// Model satu mata kuliah dalam jadwal mahasiswa.
 class JadwalModel {
   final String matakuliahId;
   final String kode;
   final String nama;
-  final int sks;
+  final int    sks;
 
   // Jadwal reguler
   final String? hari;
@@ -17,15 +15,47 @@ class JadwalModel {
   final String? jamSelesai;  // format "HH:MM"
   final String? ruangan;
 
-  // Status presensi hari ini (null = belum ada sesi / bukan hari ini)
+  // Status presensi hari ini
   // Nilai: 'hadir' | 'terlambat' | 'absen' | null
   final String? statusPresensi;
 
-  // Flag sesi aktif — apakah dosen sudah membuka sesi sekarang
-  final bool adaSesiAktif;
-
-  // UUID sesi jika aktif (langsung bisa dipakai untuk presensi)
+  // Flag sesi aktif
+  final bool    adaSesiAktif;
   final String? sesiId;
+
+  // ── [BARU v2.1.0] Kelas ───────────────────────────────────
+  /// UUID kelas yang diambil mahasiswa ini
+  final String? kelasId;
+
+  /// Kode kelas (A/B/C)
+  final String? kodeKelas;
+
+  /// Nama dosen pengampu kelas ini
+  final String? dosenNama;
+
+  /// Slot mulai (1-12) — untuk SlotLabel widget
+  final int? slotMulai;
+
+  /// Slot selesai (1-12) — untuk SlotLabel widget
+  final int? slotSelesai;
+
+  // ── [BARU v2.1.0] Jadwal Pengganti ───────────────────────
+  /// Flag: apakah ada jadwal pengganti untuk pertemuan terdekat
+  final bool    adaJadwalPengganti;
+  final String? jamMulaiPengganti;
+  final String? jamSelesaiPengganti;
+  final String? ruanganPengganti;
+
+  /// Mode efektif dari jadwal pengganti (offline/online)
+  /// null jika tidak ada jadwal pengganti
+  final String? modePengganti;
+
+  // ── [BARU v2.1.0] Tamu ───────────────────────────────────
+  /// True jika mahasiswa masuk kelas ini sebagai tamu
+  final bool isTamu;
+
+  /// Nama kelas asal jika adalah tamu
+  final String? kelasAsalNama;
 
   const JadwalModel({
     required this.matakuliahId,
@@ -39,61 +69,112 @@ class JadwalModel {
     this.statusPresensi,
     this.adaSesiAktif = false,
     this.sesiId,
+    // Baru
+    this.kelasId,
+    this.kodeKelas,
+    this.dosenNama,
+    this.slotMulai,
+    this.slotSelesai,
+    this.adaJadwalPengganti = false,
+    this.jamMulaiPengganti,
+    this.jamSelesaiPengganti,
+    this.ruanganPengganti,
+    this.modePengganti,
+    this.isTamu = false,
+    this.kelasAsalNama,
   });
 
-  // ── Factory dari JSON response backend ─────────────────────
   factory JadwalModel.fromJson(Map<String, dynamic> json) {
     return JadwalModel(
-      matakuliahId   : json['matakuliah_id']  as String,
-      kode           : json['kode']           as String,
-      nama           : json['nama']           as String,
-      sks            : json['sks']            as int,
-      hari           : json['hari']           as String?,
-      jamMulai       : json['jam_mulai']      as String?,
-      jamSelesai     : json['jam_selesai']    as String?,
-      ruangan        : json['ruangan']        as String?,
-      statusPresensi : json['status_presensi'] as String?,
-      adaSesiAktif   : json['ada_sesi_aktif'] as bool? ?? false,
-      sesiId         : json['sesi_id']        as String?,
+      matakuliahId      : json['matakuliah_id']          as String,
+      kode              : json['kode']                   as String,
+      nama              : json['nama']                   as String,
+      sks               : json['sks']                    as int,
+      hari              : json['hari']                   as String?,
+      jamMulai          : json['jam_mulai']              as String?,
+      jamSelesai        : json['jam_selesai']            as String?,
+      ruangan           : json['ruangan']                as String?,
+      statusPresensi    : json['status_presensi']        as String?,
+      adaSesiAktif      : json['ada_sesi_aktif']         as bool? ?? false,
+      sesiId            : json['sesi_id']                as String?,
+      // Baru
+      kelasId           : json['kelas_id']               as String?,
+      kodeKelas         : json['kode_kelas']             as String?,
+      dosenNama         : json['dosen_nama']             as String?,
+      slotMulai         : json['slot_mulai']             as int?,
+      slotSelesai       : json['slot_selesai']           as int?,
+      adaJadwalPengganti: json['ada_jadwal_pengganti']   as bool? ?? false,
+      jamMulaiPengganti : json['jam_mulai_pengganti']    as String?,
+      jamSelesaiPengganti: json['jam_selesai_pengganti'] as String?,
+      ruanganPengganti  : json['ruangan_pengganti']      as String?,
+      modePengganti     : json['mode_pengganti']         as String?,
+      isTamu            : json['is_tamu']                as bool? ?? false,
+      kelasAsalNama     : json['kelas_asal_nama']        as String?,
     );
   }
 
-  // ── Serialisasi ke Map (untuk keperluan debugging/cache) ───
   Map<String, dynamic> toJson() => {
-    'matakuliah_id'  : matakuliahId,
-    'kode'           : kode,
-    'nama'           : nama,
-    'sks'            : sks,
-    'hari'           : hari,
-    'jam_mulai'      : jamMulai,
-    'jam_selesai'    : jamSelesai,
-    'ruangan'        : ruangan,
-    'status_presensi': statusPresensi,
-    'ada_sesi_aktif' : adaSesiAktif,
-    'sesi_id'        : sesiId,
+    'matakuliah_id'      : matakuliahId,
+    'kode'               : kode,
+    'nama'               : nama,
+    'sks'                : sks,
+    'hari'               : hari,
+    'jam_mulai'          : jamMulai,
+    'jam_selesai'        : jamSelesai,
+    'ruangan'            : ruangan,
+    'status_presensi'    : statusPresensi,
+    'ada_sesi_aktif'     : adaSesiAktif,
+    'sesi_id'            : sesiId,
+    'kelas_id'           : kelasId,
+    'kode_kelas'         : kodeKelas,
+    'dosen_nama'         : dosenNama,
+    'slot_mulai'         : slotMulai,
+    'slot_selesai'       : slotSelesai,
+    'ada_jadwal_pengganti': adaJadwalPengganti,
+    'jam_mulai_pengganti' : jamMulaiPengganti,
+    'jam_selesai_pengganti': jamSelesaiPengganti,
+    'ruangan_pengganti'   : ruanganPengganti,
+    'mode_pengganti'      : modePengganti,
+    'is_tamu'             : isTamu,
+    'kelas_asal_nama'     : kelasAsalNama,
   };
 
   // ── Helper getters ─────────────────────────────────────────
 
-  /// Label jam lengkap, contoh: "08:00 – 09:40"
+  /// Label jam efektif (prioritas jadwal pengganti)
   String get labelJam {
-    if (jamMulai == null && jamSelesai == null) return '-';
-    final mulai   = jamMulai   ?? '?';
-    final selesai = jamSelesai ?? '?';
+    if (adaJadwalPengganti) {
+      final mulai   = jamMulaiPengganti   ?? jamMulai   ?? '?';
+      final selesai = jamSelesaiPengganti ?? jamSelesai ?? '?';
+      return '$mulai – $selesai';
+    }
+    final mulai   = jamMulai   ?? '-';
+    final selesai = jamSelesai ?? '-';
     return '$mulai – $selesai';
   }
 
-  /// Apakah mahasiswa sudah presensi di sesi hari ini?
+  /// Ruangan efektif (prioritas jadwal pengganti)
+  String get ruanganEfektif {
+    if (adaJadwalPengganti && ruanganPengganti != null) {
+      return ruanganPengganti!;
+    }
+    return ruangan ?? '-';
+  }
+
+  /// Mode efektif kelas (null jika tidak ada pengganti)
+  String? get modeEfektif => modePengganti;
+
+  /// Apakah mahasiswa sudah presensi?
   bool get sudahPresensi =>
       statusPresensi == 'hadir' || statusPresensi == 'terlambat';
 
-  /// Apakah mahasiswa tercatat absen / izin / sakit?
+  /// Apakah mahasiswa tercatat ketidakhadiran?
   bool get ketidakhadiran =>
       statusPresensi == 'absen' ||
       statusPresensi == 'izin'  ||
       statusPresensi == 'sakit';
 
-  /// Tampilkan label status presensi yang ramah pengguna
+  /// Label status yang user-friendly
   String get labelStatus {
     switch (statusPresensi) {
       case 'hadir'    : return 'Hadir';
@@ -104,6 +185,16 @@ class JadwalModel {
       default         : return adaSesiAktif ? 'Belum Presensi' : 'Belum Ada Sesi';
     }
   }
+
+  /// Label slot waktu "Slot 1–3"
+  String get labelSlot {
+    if (slotMulai == null) return '';
+    final selesai = slotSelesai ?? slotMulai;
+    return 'Slot $slotMulai–$selesai';
+  }
+
+  /// Label kelas jika ada
+  String get labelKelas => kodeKelas != null ? 'Kelas $kodeKelas' : '';
 
   @override
   String toString() => 'JadwalModel($kode – $nama, $hari $labelJam)';
@@ -120,13 +211,10 @@ class JadwalModel {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Model untuk response GET /jadwal/mingguan
-// Backend mengembalikan Map<String, List<JadwalItem>> dikelompokkan per hari
+// Model jadwal mingguan
 // ─────────────────────────────────────────────────────────────
 
 class JadwalMingguanModel {
-  /// Key: nama hari ('Senin', 'Selasa', dst.)
-  /// Value: list matakuliah di hari tersebut
   final Map<String, List<JadwalModel>> perHari;
 
   const JadwalMingguanModel({required this.perHari});
@@ -142,15 +230,12 @@ class JadwalMingguanModel {
     return JadwalMingguanModel(perHari: map);
   }
 
-  /// Urutan hari yang benar (Senin → Minggu)
   static const List<String> urutan = [
     'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu',
   ];
 
-  /// Jadwal untuk hari tertentu (default: list kosong jika tidak ada)
   List<JadwalModel> hariIni(String namaHari) => perHari[namaHari] ?? [];
 
-  /// Total matakuliah di semua hari
   int get totalMatakuliah =>
       perHari.values.fold(0, (sum, list) => sum + list.length);
 }
