@@ -1,4 +1,6 @@
 // lib/screens/home_screen.dart
+// v2.1.0 — Fase 2: Update tema UMS, badge kelas, nama dosen, mode sesi aktif
+
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
@@ -6,14 +8,12 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import 'package:presensi_app/core/api_client.dart';
+import 'package:presensi_app/core/theme.dart';
 import 'package:presensi_app/models/jadwal.dart';
-
-const _kNavy      = Color(0xFF1E3A5F);
-const _kNavyLight = Color(0xFF2A5298);
-const _kAccent    = Color(0xFF00BFA5);
-const _kWarning   = Color(0xFFFFA726);
-const _kDanger    = Color(0xFFEF5350);
-const _kBgLight   = Color(0xFFF5F7FA);
+import 'package:presensi_app/widgets/kelas_badge.dart';
+import 'package:presensi_app/widgets/mode_badge.dart';
+import 'package:presensi_app/widgets/slot_label.dart';
+import 'package:presensi_app/widgets/ums_app_bar.dart';
 
 // ─── Models ──────────────────────────────────────────────────
 
@@ -51,33 +51,47 @@ class SesiAktifInfo {
   final int?    detikTersisa;
   final int     pertemuanKe;
 
+  // ── [BARU v2.1.0] ─────────────────────────────────────────
+  final String? kodeKelas;
+  final String? dosenNama;
+  final String? kelasId;
+
   const SesiAktifInfo({
     required this.sesiId,
     required this.matakuliahNama,
     required this.mode,
     this.detikTersisa,
     required this.pertemuanKe,
+    this.kodeKelas,
+    this.dosenNama,
+    this.kelasId,
   });
 
   factory SesiAktifInfo.fromJson(Map<String, dynamic> json) => SesiAktifInfo(
-    sesiId        : json['sesi_id']          as String? ?? '',
-    matakuliahNama: json['matakuliah_nama']   as String? ?? '',
-    mode          : json['mode']              as String? ?? '',
-    detikTersisa  : json['detik_tersisa']     as int?,
-    pertemuanKe   : json['pertemuan_ke']      as int? ?? 0,
+    sesiId         : json['sesi_id']          as String? ?? '',
+    matakuliahNama : json['matakuliah_nama']   as String? ?? '',
+    mode           : json['mode']             as String? ?? '',
+    detikTersisa   : json['detik_tersisa']     as int?,
+    pertemuanKe    : json['pertemuan_ke']      as int? ?? 0,
+    kodeKelas      : json['kode_kelas']        as String?,
+    dosenNama      : json['dosen_nama']        as String?,
+    kelasId        : json['kelas_id']          as String?,
   );
 
   bool get isOnline => mode == 'online';
 }
 
 class HomeSummaryModel {
-  final String           namaMahasiswa;
-  final String           nim;
-  final bool             isFaceRegistered;
-  final StatKehadiran    statSemester;
-  final int              presensiHariIni;
-  final List<JadwalModel> jadwalHariIni;
+  final String              namaMahasiswa;
+  final String              nim;
+  final bool                isFaceRegistered;
+  final StatKehadiran       statSemester;
+  final int                 presensiHariIni;
+  final List<JadwalModel>   jadwalHariIni;
   final List<SesiAktifInfo> sesiAktif;
+
+  // ── [BARU v2.1.0] ─────────────────────────────────────────
+  final String? programStudiId;
 
   const HomeSummaryModel({
     required this.namaMahasiswa,
@@ -87,10 +101,9 @@ class HomeSummaryModel {
     required this.presensiHariIni,
     required this.jadwalHariIni,
     required this.sesiAktif,
+    this.programStudiId,
   });
 
-  /// Parse dari response GET /mahasiswa/home-summary
-  /// Backend response sesuai HomeSummaryResponse di app/schemas/home.py
   factory HomeSummaryModel.fromJson(Map<String, dynamic> json) {
     return HomeSummaryModel(
       namaMahasiswa   : json['nama_mahasiswa']    as String? ?? '',
@@ -105,6 +118,7 @@ class HomeSummaryModel {
       sesiAktif       : ((json['sesi_aktif'] as List<dynamic>?) ?? [])
           .map((e) => SesiAktifInfo.fromJson(e as Map<String, dynamic>))
           .toList(),
+      programStudiId  : json['program_studi_id'] as String?,
     );
   }
 }
@@ -127,6 +141,7 @@ class _HomeScreenState extends State<HomeScreen>
 
   Timer?    _countdownTimer;
   Duration? _sisaWaktu;
+  bool      _isFetching = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -142,16 +157,11 @@ class _HomeScreenState extends State<HomeScreen>
     _countdownTimer?.cancel();
     super.dispose();
   }
-  
-  bool _isFetching = false;
 
   Future<void> _fetchSummary() async {
     if (_isFetching) return;
     _isFetching = true;
-    setState(() {
-      _isLoading = true;
-      _error     = null;
-    });
+    setState(() { _isLoading = true; _error = null; });
 
     try {
       final response = await ApiClient().get('/mahasiswa/home-summary');
@@ -160,10 +170,7 @@ class _HomeScreenState extends State<HomeScreen>
       final summary = HomeSummaryModel.fromJson(json);
 
       if (!mounted) return;
-      setState(() {
-        _summary   = summary;
-        _isLoading = false;
-      });
+      setState(() { _summary = summary; _isLoading = false; });
 
       if (summary.sesiAktif.isNotEmpty) {
         final onlineSesi = summary.sesiAktif
@@ -175,10 +182,7 @@ class _HomeScreenState extends State<HomeScreen>
       }
     } catch (e) {
       if (!mounted) return;
-      setState(() {
-        _error     = e.toString();
-        _isLoading = false;
-      });
+      setState(() { _error = e.toString(); _isLoading = false; });
     } finally {
       _isFetching = false;
     }
@@ -190,13 +194,10 @@ class _HomeScreenState extends State<HomeScreen>
     _countdownTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (!mounted) return;
       if (_sisaWaktu != null && _sisaWaktu!.inSeconds > 0) {
-        setState(() {
-          _sisaWaktu = _sisaWaktu! - const Duration(seconds: 1);
-        });
+        setState(() { _sisaWaktu = _sisaWaktu! - const Duration(seconds: 1); });
       } else {
         _countdownTimer?.cancel();
         setState(() => _sisaWaktu = Duration.zero);
-        // Jangan fetch ulang otomatis — biarkan user refresh manual
       }
     });
   }
@@ -207,10 +208,10 @@ class _HomeScreenState extends State<HomeScreen>
   Widget build(BuildContext context) {
     super.build(context);
     return Scaffold(
-      backgroundColor: _kBgLight,
+      backgroundColor: AppColors.kBgLight,
       body: RefreshIndicator(
         onRefresh : _fetchSummary,
-        color     : _kNavy,
+        color     : AppColors.kNavy,
         child     : _isLoading
             ? const _LoadingView()
             : _error != null
@@ -224,7 +225,7 @@ class _HomeScreenState extends State<HomeScreen>
     final s = _summary!;
     return CustomScrollView(
       slivers: [
-        _buildSliverAppBar(s),
+        _buildUMSSliverAppBar(s),
         SliverPadding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
           sliver : SliverList(
@@ -241,21 +242,23 @@ class _HomeScreenState extends State<HomeScreen>
                 const SizedBox(height: 20),
               ],
 
-              // Kartu statistik
+              // Kartu statistik kehadiran
               _StatUtamaCard(
                 persentase: s.statSemester.persentase,
                 totalHadir: s.statSemester.hadir + s.statSemester.terlambat,
                 totalSesi : s.statSemester.totalPertemuan,
+                absen     : s.statSemester.absen,
               ),
               const SizedBox(height: 20),
 
-              // Jadwal hari ini
+              // Header jadwal hari ini
               _SectionHeader(
                 title   : 'Jadwal Hari Ini',
                 subtitle: DateFormat('EEEE, d MMMM yyyy', 'id_ID')
                     .format(DateTime.now()),
               ),
               const SizedBox(height: 12),
+
               if (s.jadwalHariIni.isEmpty)
                 const _EmptyJadwal()
               else
@@ -270,79 +273,171 @@ class _HomeScreenState extends State<HomeScreen>
     );
   }
 
-  Widget _buildSliverAppBar(HomeSummaryModel s) {
-    final namaDepan    = s.namaMahasiswa.split(' ').first;
-    final jamSekarang  = DateTime.now().hour;
+  // ── UMS SliverAppBar dengan logo ──────────────────────────
+  Widget _buildUMSSliverAppBar(HomeSummaryModel s) {
+    final namaDepan   = s.namaMahasiswa.split(' ').first;
+    final jamSekarang = DateTime.now().hour;
     final sapaan = jamSekarang < 11
-        ? 'Selamat Pagi'
+        ? 'Selamat Pagi,'
         : jamSekarang < 15
-            ? 'Selamat Siang'
+            ? 'Selamat Siang,'
             : jamSekarang < 18
-                ? 'Selamat Sore'
-                : 'Selamat Malam';
+                ? 'Selamat Sore,'
+                : 'Selamat Malam,';
 
     return SliverAppBar(
-      expandedHeight : 160,
-      pinned         : true,
-      backgroundColor: _kNavy,
-      elevation      : 0,
+      expandedHeight          : 170,
+      pinned                  : true,
+      floating                : false,
+      backgroundColor         : AppColors.kNavy,
+      elevation               : 0,
       automaticallyImplyLeading: false,
-      flexibleSpace  : FlexibleSpaceBar(
-        background: Container(
-          decoration: const BoxDecoration(
-            gradient: LinearGradient(
-              begin  : Alignment.topLeft,
-              end    : Alignment.bottomRight,
-              colors : [_kNavy, _kNavyLight],
-            ),
-          ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 16),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment : MainAxisAlignment.center,
-                      children: [
-                        Text(sapaan,
-                          style: const TextStyle(color: Colors.white70, fontSize: 13)),
-                        const SizedBox(height: 4),
-                        Text(namaDepan,
-                          style: const TextStyle(
-                            color: Colors.white, fontSize: 22,
-                            fontWeight: FontWeight.bold),
-                          overflow: TextOverflow.ellipsis),
-                        const SizedBox(height: 2),
-                        Text(s.nim,
-                          style: const TextStyle(color: Colors.white60, fontSize: 12)),
-                      ],
+      flexibleSpace: FlexibleSpaceBar(
+        collapseMode: CollapseMode.pin,
+        background  : Container(
+          decoration: const BoxDecoration(gradient: AppColors.kNavyGradient),
+          child: Stack(
+            children: [
+              // Dekorasi geometrik kanan atas
+              Positioned(
+                right : -25,
+                top   : -20,
+                child : Opacity(
+                  opacity: 0.07,
+                  child: Container(
+                    width: 140, height: 140,
+                    decoration: BoxDecoration(
+                      border      : Border.all(color: Colors.white, width: 2),
+                      borderRadius: BorderRadius.circular(28),
+                    ),
+                    child: Center(
+                      child: Container(
+                        width: 80, height: 80,
+                        decoration: BoxDecoration(
+                          border      : Border.all(color: Colors.white, width: 1.5),
+                          borderRadius: BorderRadius.circular(16),
+                        ),
+                      ),
                     ),
                   ),
-                  CircleAvatar(
-                    radius         : 28,
-                    backgroundColor: Colors.white.withOpacity(0.2),
-                    child          : Text(
-                      s.namaMahasiswa.isNotEmpty ? s.namaMahasiswa[0].toUpperCase() : '?',
-                      style: const TextStyle(
-                        color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                ],
+                ),
               ),
-            ),
+              // Garis gold di bawah
+              Positioned(
+                bottom: 0, left: 0, right: 0,
+                child: Container(
+                  height: 2,
+                  color : AppColors.kGold.withOpacity(0.5),
+                ),
+              ),
+              // Konten utama
+              SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 16),
+                  child  : Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          // Logo UMS
+                          _UMSLogoWidget(),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  sapaan,
+                                  style: AppTypography.heroSubtitle,
+                                ),
+                                const SizedBox(height: 2),
+                                Text(
+                                  namaDepan,
+                                  style   : AppTypography.hero.copyWith(fontSize: 22),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  s.nim,
+                                  style: AppTypography.heroSubtitle.copyWith(
+                                    fontSize: 11),
+                                ),
+                              ],
+                            ),
+                          ),
+                          // Avatar initial
+                          CircleAvatar(
+                            radius         : 26,
+                            backgroundColor: Colors.white.withOpacity(0.15),
+                            child          : Text(
+                              s.namaMahasiswa.isNotEmpty
+                                  ? s.namaMahasiswa[0].toUpperCase()
+                                  : '?',
+                              style: const TextStyle(
+                                color: Colors.white, fontSize: 20,
+                                fontWeight: FontWeight.bold),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),
-      title: const Text('Beranda',
-          style: TextStyle(color: Colors.white, fontSize: 18)),
-      titleSpacing: 20,
+      // Title saat collapsed
+      title: Row(
+        children: [
+          _UMSLogoWidget(size: 26),
+          const SizedBox(width: 8),
+          Text(
+            'Beranda',
+            style: AppTypography.hero.copyWith(fontSize: 16),
+          ),
+        ],
+      ),
+      titleSpacing: 16,
     );
   }
 }
 
-// ─── Sub-widgets ──────────────────────────────────────────────
+// ─── Logo Widget UMS ─────────────────────────────────────────
+
+class _UMSLogoWidget extends StatelessWidget {
+  final double size;
+  const _UMSLogoWidget({this.size = 34});
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.asset(
+      'assets/images/Logo_UMS.png',
+      height: size,
+      width : size,
+      errorBuilder: (_, __, ___) => Container(
+        width : size,
+        height: size,
+        decoration: BoxDecoration(
+          color       : Colors.white.withOpacity(0.15),
+          borderRadius: BorderRadius.circular(6),
+        ),
+        child: Center(
+          child: Text(
+            'U',
+            style: TextStyle(
+              color: Colors.white,
+              fontSize: size * 0.55,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Banner Sesi Aktif (v2.1.0 — tambah badge kelas, dosen, mode) ────
 
 class _SesiAktifBanner extends StatelessWidget {
   final SesiAktifInfo sesi;
@@ -365,13 +460,17 @@ class _SesiAktifBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       decoration: BoxDecoration(
-        gradient    : const LinearGradient(colors: [Color(0xFF00897B), _kAccent]),
-        borderRadius: BorderRadius.circular(16),
+        gradient    : const LinearGradient(
+          colors: [Color(0xFF00695C), AppColors.kGreen],
+          begin: Alignment.topLeft,
+          end  : Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(AppDecorations.kRadiusCard),
         boxShadow   : [
           BoxShadow(
-            color     : _kAccent.withOpacity(0.3),
-            blurRadius: 12,
-            offset    : const Offset(0, 4),
+            color     : AppColors.kGreen.withOpacity(0.30),
+            blurRadius: 16,
+            offset    : const Offset(0, 5),
           ),
         ],
       ),
@@ -380,59 +479,114 @@ class _SesiAktifBanner extends StatelessWidget {
         child  : Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+            // Baris status badge
             Row(
               children: [
                 Container(
-                  padding    : const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                  padding    : const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 4),
                   decoration : BoxDecoration(
-                    color      : Colors.white.withOpacity(0.2),
+                    color      : Colors.white.withOpacity(0.20),
                     borderRadius: BorderRadius.circular(20),
                   ),
                   child: Row(
                     mainAxisSize: MainAxisSize.min,
                     children    : [
-                      const Icon(Icons.circle, color: Colors.white, size: 8),
+                      Container(
+                        width : 7, height: 7,
+                        decoration: const BoxDecoration(
+                          color: Colors.white,
+                          shape: BoxShape.circle,
+                        ),
+                      ),
                       const SizedBox(width: 6),
                       Text(
                         'SESI ${sesi.isOnline ? 'ONLINE' : 'OFFLINE'} AKTIF',
                         style: const TextStyle(
-                          color: Colors.white, fontSize: 11,
-                          fontWeight: FontWeight.bold, letterSpacing: 0.5),
+                          color     : Colors.white,
+                          fontSize  : 10,
+                          fontWeight: FontWeight.bold,
+                          letterSpacing: 0.8,
+                        ),
                       ),
                     ],
                   ),
                 ),
+                const Spacer(),
+                // [BARU v2.1.0] Mode badge
+                _ModeBadgeWhite(mode: sesi.mode),
               ],
             ),
             const SizedBox(height: 10),
-            Text(sesi.matakuliahNama,
+
+            // Nama MK
+            Text(
+              sesi.matakuliahNama,
               style: const TextStyle(
-                color: Colors.white, fontSize: 17, fontWeight: FontWeight.bold)),
-            Text('Pertemuan ke-${sesi.pertemuanKe}',
-              style: const TextStyle(color: Colors.white70, fontSize: 13)),
-            const SizedBox(height: 12),
+                color: Colors.white, fontSize: 17,
+                fontWeight: FontWeight.bold),
+            ),
+
+            // [BARU v2.1.0] Kelas + dosen + pertemuan
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Text(
+                  'Pertemuan ke-${sesi.pertemuanKe}',
+                  style: const TextStyle(
+                    color: Colors.white70, fontSize: 12),
+                ),
+                if (sesi.kodeKelas != null) ...[
+                  const SizedBox(width: 8),
+                  _KelasBadgeWhite(kodeKelas: sesi.kodeKelas!),
+                ],
+                if (sesi.dosenNama != null) ...[
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      sesi.dosenNama!,
+                      style: const TextStyle(
+                        color: Colors.white60, fontSize: 11),
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+
+            const SizedBox(height: 14),
+
+            // Baris countdown + tombol presensi
             Row(
               children: [
                 if (sisaWaktu != null && sesi.isOnline) ...[
-                  const Icon(Icons.timer_outlined, color: Colors.white70, size: 16),
-                  const SizedBox(width: 6),
-                  Text('Sisa ${_formatDurasi(sisaWaktu!)}',
+                  const Icon(Icons.timer_outlined,
+                    color: Colors.white70, size: 15),
+                  const SizedBox(width: 5),
+                  Text(
+                    'Sisa ${_formatDurasi(sisaWaktu!)}',
                     style: const TextStyle(
-                      color: Colors.white, fontSize: 13, fontWeight: FontWeight.w600)),
-                  const Spacer(),
+                      color     : Colors.white,
+                      fontSize  : 13,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
                 ],
+                const Spacer(),
                 ElevatedButton.icon(
                   onPressed  : onPresensi,
-                  icon       : const Icon(Icons.face_rounded, size: 18),
+                  icon       : const Icon(Icons.face_rounded, size: 17),
                   label      : const Text('Presensi Sekarang'),
                   style      : ElevatedButton.styleFrom(
                     backgroundColor: Colors.white,
-                    foregroundColor: const Color(0xFF00897B),
+                    foregroundColor: AppColors.kGreen,
                     elevation      : 0,
-                    padding        : const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                    shape          : RoundedRectangleBorder(
+                    padding        : const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 10),
+                    shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(10)),
-                    textStyle: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                    textStyle: AppTypography.buttonSmall.copyWith(
+                      color: AppColors.kGreen),
                   ),
                 ),
               ],
@@ -444,107 +598,191 @@ class _SesiAktifBanner extends StatelessWidget {
   }
 }
 
+// Badge mode putih untuk di atas banner hijau
+class _ModeBadgeWhite extends StatelessWidget {
+  final String mode;
+  const _ModeBadgeWhite({required this.mode});
+
+  bool get _isOnline => mode.toLowerCase() == 'online';
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color       : Colors.white.withOpacity(0.18),
+        borderRadius: BorderRadius.circular(20),
+        border      : Border.all(color: Colors.white.withOpacity(0.35), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            _isOnline ? Icons.laptop_outlined : Icons.location_on_outlined,
+            size: 10, color: Colors.white,
+          ),
+          const SizedBox(width: 3),
+          Text(
+            _isOnline ? 'Online' : 'Tatap Muka',
+            style: const TextStyle(
+              color     : Colors.white,
+              fontSize  : 10,
+              fontWeight: FontWeight.bold,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// Badge kelas putih untuk di dalam banner
+class _KelasBadgeWhite extends StatelessWidget {
+  final String kodeKelas;
+  const _KelasBadgeWhite({required this.kodeKelas});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+      decoration: BoxDecoration(
+        color       : Colors.white.withOpacity(0.20),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Text(
+        'Kelas $kodeKelas',
+        style: const TextStyle(
+          color     : Colors.white,
+          fontSize  : 10,
+          fontWeight: FontWeight.bold,
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Stat Utama Card ──────────────────────────────────────────
+
 class _StatUtamaCard extends StatelessWidget {
   final double persentase;
   final int    totalHadir;
   final int    totalSesi;
+  final int    absen;
 
   const _StatUtamaCard({
     required this.persentase,
     required this.totalHadir,
     required this.totalSesi,
+    required this.absen,
   });
 
-  Color get _warnaRing {
-    if (persentase >= 75) return _kAccent;
-    if (persentase >= 60) return _kWarning;
-    return _kDanger;
-  }
+  Color get _warnaRing => AppColors.persentaseColor(persentase);
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding    : const EdgeInsets.all(20),
-      decoration : BoxDecoration(
-        color      : Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        boxShadow  : [
-          BoxShadow(
-            color     : Colors.black.withOpacity(0.06),
-            blurRadius: 12, offset: const Offset(0, 4)),
-        ],
+      padding   : const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color      : AppColors.kSurface,
+        borderRadius: BorderRadius.circular(AppDecorations.kRadiusCard),
+        // Border bawah gold untuk kartu featured
+        border     : const Border(
+          bottom: BorderSide(color: AppColors.kGold, width: 3),
+        ),
+        boxShadow  : AppDecorations.cardShadow,
       ),
       child: Row(
         children: [
+          // Ring persentase
           SizedBox(
-            width : 90,
-            height: 90,
+            width : 88,
+            height: 88,
             child : Stack(
               alignment: Alignment.center,
               children : [
                 CircularProgressIndicator(
                   value          : (persentase / 100).clamp(0.0, 1.0),
                   strokeWidth    : 8,
-                  backgroundColor: Colors.grey.shade100,
+                  backgroundColor: AppColors.kSoftGray,
                   valueColor     : AlwaysStoppedAnimation(_warnaRing),
                 ),
                 Column(
                   mainAxisSize: MainAxisSize.min,
                   children    : [
-                    Text('${persentase.toStringAsFixed(0)}%',
-                      style: TextStyle(
-                        color: _warnaRing, fontSize: 20, fontWeight: FontWeight.bold)),
-                    const Text('Hadir',
-                      style: TextStyle(color: Colors.grey, fontSize: 11)),
+                    Text(
+                      '${persentase.toStringAsFixed(0)}%',
+                      style: AppTypography.sectionTitle.copyWith(
+                        color   : _warnaRing,
+                        fontSize: 20,
+                      ),
+                    ),
+                    Text(
+                      'Hadir',
+                      style: AppTypography.caption.copyWith(
+                        color: AppColors.kTextSecondary),
+                    ),
                   ],
                 ),
               ],
             ),
           ),
-          const SizedBox(width: 20),
+          const SizedBox(width: 18),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Kehadiran Semester Ini',
-                  style: TextStyle(
-                    color: _kNavy, fontSize: 15, fontWeight: FontWeight.bold)),
+                Text(
+                  'Kehadiran Semester Ini',
+                  style: AppTypography.sectionTitle.copyWith(fontSize: 14),
+                ),
                 const SizedBox(height: 10),
-                Row(children: [
-                  Icon(Icons.check_circle_outline, color: _kAccent, size: 16),
-                  const SizedBox(width: 6),
-                  Text('Hadir Efektif  ',
-                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                  Text('$totalHadir sesi',
-                    style: const TextStyle(
-                      color: _kNavy, fontSize: 12, fontWeight: FontWeight.w600)),
-                ]),
+                _StatRow(
+                  icon : Icons.check_circle_outline,
+                  color: AppColors.kStatusHadir,
+                  label: 'Hadir Efektif',
+                  value: '$totalHadir sesi',
+                ),
                 const SizedBox(height: 6),
-                Row(children: [
-                  Icon(Icons.event_note_outlined, color: _kNavyLight, size: 16),
-                  const SizedBox(width: 6),
-                  Text('Total Sesi  ',
-                    style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                  Text('$totalSesi sesi',
-                    style: const TextStyle(
-                      color: _kNavy, fontSize: 12, fontWeight: FontWeight.w600)),
-                ]),
+                _StatRow(
+                  icon : Icons.event_note_outlined,
+                  color: AppColors.kNavy,
+                  label: 'Total Sesi',
+                  value: '$totalSesi sesi',
+                ),
+                const SizedBox(height: 6),
+                _StatRow(
+                  icon : Icons.cancel_outlined,
+                  color: AppColors.kStatusAbsen,
+                  label: 'Absen',
+                  value: '$absen sesi',
+                ),
+                // Peringatan jika kehadiran < 75%
                 if (persentase < 75) ...[
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 10),
                   Container(
-                    padding    : const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                    padding    : const EdgeInsets.symmetric(
+                      horizontal: 8, vertical: 5),
                     decoration : BoxDecoration(
-                      color      : _kWarning.withOpacity(0.1),
+                      color      : AppColors.kStatusTerlambat.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(8),
+                      border     : Border.all(
+                        color: AppColors.kStatusTerlambat.withOpacity(0.30),
+                        width: 1,
+                      ),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children    : [
-                        Icon(Icons.warning_amber_rounded, color: _kWarning, size: 14),
-                        const SizedBox(width: 4),
-                        Text('Kehadiran di bawah 75%',
-                          style: TextStyle(
-                            color: _kWarning, fontSize: 11, fontWeight: FontWeight.w600)),
+                        Icon(Icons.warning_amber_rounded,
+                          color: AppColors.kWarning, size: 13),
+                        const SizedBox(width: 5),
+                        Text(
+                          'Kehadiran di bawah 75%',
+                          style: AppTypography.caption.copyWith(
+                            color     : AppColors.kWarning,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -558,6 +796,38 @@ class _StatUtamaCard extends StatelessWidget {
   }
 }
 
+class _StatRow extends StatelessWidget {
+  final IconData icon;
+  final Color    color;
+  final String   label;
+  final String   value;
+
+  const _StatRow({
+    required this.icon,
+    required this.color,
+    required this.label,
+    required this.value,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: color, size: 15),
+        const SizedBox(width: 6),
+        Text(label, style: AppTypography.caption),
+        const SizedBox(width: 4),
+        Text(value, style: AppTypography.caption.copyWith(
+          color     : AppColors.kNavyDark,
+          fontWeight: FontWeight.w600,
+        )),
+      ],
+    );
+  }
+}
+
+// ─── Jadwal Card (v2.1.0 — badge kelas + nama dosen + mode) ──
+
 class _JadwalCard extends StatelessWidget {
   final JadwalModel  jadwal;
   final VoidCallback onScan;
@@ -566,98 +836,285 @@ class _JadwalCard extends StatelessWidget {
 
   Color _statusColor() {
     switch (jadwal.statusPresensi) {
-      case 'hadir'    : return _kAccent;
-      case 'terlambat': return _kWarning;
-      case 'absen'    : return _kDanger;
-      default         : return jadwal.adaSesiAktif ? _kNavy : Colors.grey;
+      case 'hadir'    : return AppColors.kStatusHadir;
+      case 'terlambat': return AppColors.kStatusTerlambat;
+      case 'absen'    : return AppColors.kStatusAbsen;
+      default         : return jadwal.adaSesiAktif
+          ? AppColors.kNavy
+          : AppColors.kTextSecondary;
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final color = _statusColor();
+    final color      = _statusColor();
+    final adaAktif   = jadwal.adaSesiAktif && !jadwal.sudahPresensi;
+    final modePengganti = jadwal.modeEfektif;
+
     return Container(
       margin    : const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color      : Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border     : jadwal.adaSesiAktif && !jadwal.sudahPresensi
-            ? Border.all(color: _kNavy.withOpacity(0.3), width: 1.5)
+        color      : AppColors.kSurface,
+        borderRadius: BorderRadius.circular(AppDecorations.kRadiusCard),
+        border     : adaAktif
+            ? Border.all(color: AppColors.kNavy.withOpacity(0.35), width: 1.5)
             : null,
-        boxShadow  : [
-          BoxShadow(
-            color     : Colors.black.withOpacity(0.04),
-            blurRadius: 8, offset: const Offset(0, 2)),
-        ],
+        boxShadow  : AppDecorations.cardShadow,
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              width      : 4,
-              height     : 52,
-              decoration : BoxDecoration(
-                color      : color, borderRadius: BorderRadius.circular(2)),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(jadwal.nama,
-                    style: const TextStyle(
-                      color: _kNavy, fontSize: 14, fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 4),
-                  Row(children: [
-                    const Icon(Icons.access_time, size: 12, color: Colors.grey),
-                    const SizedBox(width: 4),
-                    Text(jadwal.labelJam,
-                      style: const TextStyle(color: Colors.grey, fontSize: 12)),
-                    if (jadwal.ruangan != null) ...[
-                      const SizedBox(width: 10),
-                      const Icon(Icons.room_outlined, size: 12, color: Colors.grey),
-                      const SizedBox(width: 4),
-                      Expanded(
-                        child: Text(jadwal.ruangan!,
-                          style: const TextStyle(color: Colors.grey, fontSize: 12),
-                          overflow: TextOverflow.ellipsis),
-                      ),
-                    ],
-                  ]),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            if (jadwal.adaSesiAktif && !jadwal.sudahPresensi)
-              GestureDetector(
-                onTap : onScan,
-                child : Container(
-                  padding    : const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  decoration : BoxDecoration(
-                    color      : _kNavy, borderRadius: BorderRadius.circular(10)),
-                  child: const Text('Presensi',
-                    style: TextStyle(
-                      color: Colors.white, fontSize: 12, fontWeight: FontWeight.bold)),
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.all(14),
+            child  : Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Garis vertikal warna status
+                Container(
+                  width : 4,
+                  height: 60,
+                  decoration: BoxDecoration(
+                    color       : color,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
                 ),
-              )
-            else
-              Container(
-                padding    : const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                decoration : BoxDecoration(
-                  color      : color.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8)),
-                child: Text(jadwal.labelStatus,
-                  style: TextStyle(
-                    color: color, fontSize: 12, fontWeight: FontWeight.w600)),
+                const SizedBox(width: 12),
+
+                // Info matakuliah
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // [BARU v2.1.0] Baris badge kelas + kode MK
+                      Row(
+                        children: [
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: AppColors.kNavy.withOpacity(0.08),
+                              borderRadius: BorderRadius.circular(6),
+                            ),
+                            child: Text(
+                              jadwal.kode,
+                              style: AppTypography.caption.copyWith(
+                                color     : AppColors.kNavy,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          if (jadwal.kodeKelas != null) ...[
+                            const SizedBox(width: 6),
+                            KelasBadge(kodeKelas: jadwal.kodeKelas!),
+                          ],
+                          if (modePengganti != null) ...[
+                            const SizedBox(width: 6),
+                            ModeBadge(mode: modePengganti),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 5),
+
+                      // Nama MK
+                      Text(
+                        jadwal.nama,
+                        style: AppTypography.bodyBold.copyWith(
+                          color: AppColors.kNavyDark),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 4),
+
+                      // [BARU v2.1.0] Nama dosen
+                      if (jadwal.dosenNama != null) ...[
+                        Row(
+                          children: [
+                            Icon(Icons.person_outline_rounded,
+                              size: 12, color: AppColors.kTextSecondary),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                jadwal.dosenNama!,
+                                style: AppTypography.caption,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 3),
+                      ],
+
+                      // Jam + ruangan
+                      Row(
+                        children: [
+                          Icon(Icons.access_time_rounded,
+                            size: 12,
+                            color: AppColors.kTextSecondary),
+                          const SizedBox(width: 4),
+                          Text(
+                            jadwal.labelJam,
+                            style: AppTypography.caption,
+                          ),
+                          if (jadwal.ruangan != null) ...[
+                            const SizedBox(width: 10),
+                            Icon(Icons.room_outlined,
+                              size: 12,
+                              color: AppColors.kTextSecondary),
+                            const SizedBox(width: 4),
+                            Expanded(
+                              child: Text(
+                                jadwal.ruanganEfektif,
+                                style: AppTypography.caption,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
+
+                      // Badge tamu
+                      if (jadwal.isTamu) ...[
+                        const SizedBox(height: 4),
+                        Row(
+                          children: [
+                            Icon(Icons.person_add_outlined,
+                              size: 11, color: AppColors.kWarning),
+                            const SizedBox(width: 3),
+                            Text(
+                              'Bergabung sebagai Tamu',
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.kWarning),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+
+                // Tombol presensi / badge status
+                if (adaAktif)
+                  GestureDetector(
+                    onTap : onScan,
+                    child : Container(
+                      padding    : const EdgeInsets.symmetric(
+                        horizontal: 12, vertical: 8),
+                      decoration : BoxDecoration(
+                        color      : AppColors.kNavy,
+                        borderRadius: BorderRadius.circular(10)),
+                      child: Text(
+                        'Presensi',
+                        style: AppTypography.buttonSmall.copyWith(
+                          color: Colors.white),
+                      ),
+                    ),
+                  )
+                else
+                  Container(
+                    padding    : const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 6),
+                    decoration : BoxDecoration(
+                      color      : color.withOpacity(0.10),
+                      borderRadius: BorderRadius.circular(8)),
+                    child: Text(
+                      jadwal.labelStatus,
+                      style: AppTypography.caption.copyWith(
+                        color     : color,
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+
+          // Alert jadwal pengganti
+          if (jadwal.adaJadwalPengganti) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              child  : _JadwalPenggantiMini(
+                jamMulai  : jadwal.jamMulaiPengganti,
+                jamSelesai: jadwal.jamSelesaiPengganti,
+                ruangan   : jadwal.ruanganPengganti,
+                mode      : jadwal.modePengganti,
               ),
+            ),
           ],
-        ),
+        ],
       ),
     );
   }
 }
+
+// Mini alert jadwal pengganti di dalam kartu
+class _JadwalPenggantiMini extends StatelessWidget {
+  final String? jamMulai;
+  final String? jamSelesai;
+  final String? ruangan;
+  final String? mode;
+
+  const _JadwalPenggantiMini({
+    this.jamMulai,
+    this.jamSelesai,
+    this.ruangan,
+    this.mode,
+  });
+
+  String _detail() {
+    final parts = <String>[];
+    if (jamMulai != null && jamSelesai != null) {
+      parts.add('$jamMulai – $jamSelesai');
+    }
+    if (ruangan != null) parts.add(ruangan!);
+    if (mode != null) {
+      parts.add(mode!.toLowerCase() == 'online' ? 'Online' : 'Tatap Muka');
+    }
+    return parts.join(' · ');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      decoration: BoxDecoration(
+        color       : AppColors.kGold.withOpacity(0.10),
+        borderRadius: BorderRadius.circular(8),
+        border      : Border(
+          left: BorderSide(color: AppColors.kGold, width: 3)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.swap_horiz_rounded,
+            size: 14, color: AppColors.kWarning),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Jadwal Diganti',
+                  style: AppTypography.caption.copyWith(
+                    color     : AppColors.kWarning,
+                    fontWeight: FontWeight.w700,
+                    fontSize  : 10,
+                  ),
+                ),
+                Text(
+                  _detail(),
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.kTextSecondary,
+                    fontSize: 10,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Helpers ─────────────────────────────────────────────────
 
 class _SectionHeader extends StatelessWidget {
   final String title;
@@ -667,29 +1124,38 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
     mainAxisAlignment: MainAxisAlignment.spaceBetween,
-    children         : [
-      Text(title,
-        style: const TextStyle(
-          color: _kNavy, fontSize: 15, fontWeight: FontWeight.bold)),
-      Text(subtitle,
-        style: const TextStyle(color: Colors.grey, fontSize: 12)),
+    children: [
+      Text(title, style: AppTypography.sectionTitle),
+      Text(subtitle, style: AppTypography.caption),
     ],
   );
 }
 
 class _EmptyJadwal extends StatelessWidget {
   const _EmptyJadwal();
+
   @override
   Widget build(BuildContext context) => Container(
     padding    : const EdgeInsets.all(24),
     decoration : BoxDecoration(
-      color      : Colors.white, borderRadius: BorderRadius.circular(12)),
+      color      : AppColors.kSurface,
+      borderRadius: BorderRadius.circular(AppDecorations.kRadiusCard),
+      boxShadow  : AppDecorations.cardShadow,
+    ),
     child: Column(
       children: [
-        Icon(Icons.event_available_outlined, size: 48, color: Colors.grey.shade300),
+        Icon(Icons.event_available_outlined,
+          size: 48, color: AppColors.kSoftGray),
         const SizedBox(height: 12),
-        const Text('Tidak ada jadwal hari ini',
-          style: TextStyle(color: Colors.grey, fontSize: 14)),
+        Text(
+          'Tidak ada jadwal hari ini',
+          style: AppTypography.body2,
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Nikmati hari libur kuliah 🎉',
+          style: AppTypography.caption,
+        ),
       ],
     ),
   );
@@ -697,14 +1163,15 @@ class _EmptyJadwal extends StatelessWidget {
 
 class _LoadingView extends StatelessWidget {
   const _LoadingView();
+
   @override
-  Widget build(BuildContext context) => const Center(
+  Widget build(BuildContext context) => Center(
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
-      children         : [
-        CircularProgressIndicator(color: _kNavy),
-        SizedBox(height: 16),
-        Text('Memuat data...', style: TextStyle(color: Colors.grey)),
+      children: [
+        const CircularProgressIndicator(color: AppColors.kNavy),
+        const SizedBox(height: 16),
+        Text('Memuat data...', style: AppTypography.body2),
       ],
     ),
   );
@@ -723,22 +1190,34 @@ class _ErrorView extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.wifi_off_rounded, size: 64, color: Colors.grey.shade300),
+            Icon(Icons.wifi_off_rounded,
+              size: 64, color: AppColors.kSoftGray),
             const SizedBox(height: 16),
-            const Text('Gagal memuat data',
-              style: TextStyle(
-                color: _kNavy, fontSize: 16, fontWeight: FontWeight.bold)),
+            Text(
+              'Gagal memuat data',
+              style: AppTypography.heading3,
+            ),
             const SizedBox(height: 8),
-            Text(error,
+            Text(
+              error,
               textAlign: TextAlign.center,
-              style: const TextStyle(color: Colors.grey, fontSize: 13)),
+              style    : AppTypography.body2,
+            ),
             const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: onRetry,
-              icon : const Icon(Icons.refresh),
-              label: const Text('Coba Lagi'),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: _kNavy, foregroundColor: Colors.white),
+            SizedBox(
+              width: 160,
+              child: ElevatedButton.icon(
+                onPressed: onRetry,
+                icon : const Icon(Icons.refresh_rounded, size: 18),
+                label: const Text('Coba Lagi'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: AppColors.kNavy,
+                  foregroundColor: Colors.white,
+                  minimumSize    : const Size(0, 44),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10)),
+                ),
+              ),
             ),
           ],
         ),
