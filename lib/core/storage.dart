@@ -1,4 +1,5 @@
 // lib/core/storage.dart
+// v2.1.0 — Tambah saveRaw/getRaw untuk FCM Service dan key-value generic
 
 import 'dart:convert';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
@@ -30,7 +31,7 @@ class AppStorage {
   // ── User Data ─────────────────────────────────────────────
   static Future<void> saveUserData(Map<String, dynamic> user) async {
     await _storage.write(
-      key: AppConstants.keyUserData,
+      key  : AppConstants.keyUserData,
       value: jsonEncode(user),
     );
   }
@@ -39,6 +40,34 @@ class AppStorage {
     final raw = await _storage.read(key: AppConstants.keyUserData);
     if (raw == null) return null;
     return jsonDecode(raw) as Map<String, dynamic>;
+  }
+
+  // ── [BARU v2.1.0] FCM Token ───────────────────────────────
+  static Future<void> saveFcmToken(String token) async {
+    await _storage.write(key: AppConstants.keyFcmToken, value: token);
+  }
+
+  static Future<String?> getFcmToken() async {
+    return await _storage.read(key: AppConstants.keyFcmToken);
+  }
+
+  // ── [BARU v2.1.0] Generic key-value (untuk FcmService) ────
+  /// Simpan nilai string dengan key apapun ke secure storage
+  static Future<void> saveRaw({
+    required String key,
+    required String value,
+  }) async {
+    await _storage.write(key: key, value: value);
+  }
+
+  /// Baca nilai string dari secure storage berdasarkan key
+  static Future<String?> getRaw({required String key}) async {
+    return await _storage.read(key: key);
+  }
+
+  /// Hapus satu key dari secure storage
+  static Future<void> deleteRaw({required String key}) async {
+    await _storage.delete(key: key);
   }
 
   // ── Clear all (logout) ────────────────────────────────────
