@@ -1,4 +1,5 @@
 // lib/router.dart
+// v2.1.0 — Update route /kode-sesi: terima SesiDetectResult dari ScanScreen
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
@@ -9,13 +10,15 @@ import 'package:presensi_app/screens/login_screen.dart';
 import 'package:presensi_app/screens/register_face_screen.dart';
 import 'package:presensi_app/screens/kode_sesi_screen.dart';
 import 'package:presensi_app/screens/hasil_screen.dart';
+import 'package:presensi_app/screens/tamu_sesi_list_screen.dart'; // Fase 3.3
 import 'package:presensi_app/widgets/bottom_nav.dart';
+import 'package:presensi_app/services/sesi_detect_service.dart';
 
 // Screens — Dosen
 import 'package:presensi_app/screens/dosen/main_dosen_screen.dart';
 import 'package:presensi_app/screens/dosen/kode_display_screen.dart';
 import 'package:presensi_app/screens/dosen/rekap_screen.dart';
-import 'package:presensi_app/screens/dosen/detail_matakuliah_screen.dart'; // ← BARU Fase 5
+import 'package:presensi_app/screens/dosen/detail_matakuliah_screen.dart';
 
 // Halaman loading saat cek auth
 class _SplashScreen extends StatelessWidget {
@@ -24,7 +27,7 @@ class _SplashScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return const Scaffold(
-      backgroundColor: Color(0xFF1E3A5F),
+      backgroundColor: Color(0xFF003366), // UMS Navy
       body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -148,13 +151,33 @@ GoRouter createRouter(AuthProvider authProvider) {
         path   : '/register-face',
         builder: (context, state) => const RegisterFaceScreen(),
       ),
+
+      // ── v2.1.0: /kode-sesi — terima SesiDetectResult ─────
+      // Dipanggil otomatis dari ScanScreen saat sesi online terdeteksi.
+      // extra bisa berupa:
+      //   - SesiDetectResult (dari ScanScreen v2.1.0) ← utama
+      //   - String (sesiId lama, backward-compat) ← fallback
+      //   - null (akses langsung, edge case)
       GoRoute(
         path   : '/kode-sesi',
         builder: (context, state) {
-          final sesiId = state.extra as String?;
-          return KodeSesiScreen(sesiId: sesiId);
+          final extra = state.extra;
+
+          // v2.1.0: extra adalah SesiDetectResult
+          if (extra is SesiDetectResult) {
+            return KodeSesiScreen(sesiAktif: extra);
+          }
+
+          // Backward-compat: extra adalah String sesiId
+          if (extra is String) {
+            return KodeSesiScreen(sesiId: extra);
+          }
+
+          // null — akses tanpa konteks
+          return const KodeSesiScreen();
         },
       ),
+
       GoRoute(
         path   : '/hasil',
         builder: (context, state) {
@@ -163,17 +186,20 @@ GoRouter createRouter(AuthProvider authProvider) {
         },
       ),
 
+      // ── v2.1.0: Tamu sesi list ────────────────────────────
+      GoRoute(
+        path   : '/mahasiswa/tamu-sesi',
+        builder: (context, state) => const TamuSesiListScreen(),
+      ),
+
       // ─────────────────────────────────────────────────────
       // DOSEN — Tab navigation shell (4 tab)
       // ─────────────────────────────────────────────────────
-
-      // Tab 0: Beranda
       GoRoute(
         path   : '/dosen/home',
         builder: (context, state) =>
             const MainDosenScreen(initialIndex: 0),
       ),
-      // Tab 1: Monitor
       GoRoute(
         path   : '/dosen/monitor',
         builder: (context, state) {
@@ -186,22 +212,18 @@ GoRouter createRouter(AuthProvider authProvider) {
           );
         },
       ),
-      // Tab 2: Rekap
       GoRoute(
         path   : '/dosen/rekap-list',
         builder: (context, state) =>
             const MainDosenScreen(initialIndex: 2),
       ),
-      // Tab 3: Profil
       GoRoute(
         path   : '/dosen/profil',
         builder: (context, state) =>
             const MainDosenScreen(initialIndex: 3),
       ),
 
-      // ── Dosen standalone screens ───────────────────────────
-
-      // Kode display (setelah buka sesi online)
+      // ── Dosen standalone screens ─────────────────────────
       GoRoute(
         path   : '/dosen/kode',
         builder: (context, state) {
@@ -209,8 +231,6 @@ GoRouter createRouter(AuthProvider authProvider) {
           return KodeDisplayScreen(sesiData: args);
         },
       ),
-
-      // Detail rekap satu sesi
       GoRoute(
         path   : '/dosen/rekap/:sesiId',
         builder: (context, state) {
@@ -218,8 +238,6 @@ GoRouter createRouter(AuthProvider authProvider) {
           return RekapScreen(sesiId: sesiId);
         },
       ),
-
-      // ── BARU Fase 5: Detail matakuliah dosen ──────────────
       GoRoute(
         path   : '/dosen/matakuliah/:mkId',
         builder: (context, state) {
@@ -228,14 +246,10 @@ GoRouter createRouter(AuthProvider authProvider) {
         },
       ),
 
-      // ── Rute lama dosen (redirect ke shell baru) ───────────
+      // ── Rute lama dosen (redirect) ───────────────────────
       GoRoute(
         path    : '/dosen/dashboard',
-        redirect: (context, state) {
-          final extra = state.extra;
-          if (extra != null) return '/dosen/monitor';
-          return '/dosen/monitor';
-        },
+        redirect: (context, state) => '/dosen/monitor',
       ),
       GoRoute(
         path    : '/dosen/buka-sesi',
