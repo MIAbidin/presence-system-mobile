@@ -1,10 +1,12 @@
 // lib/providers/auth_provider.dart
+// v2.1.0 — Tambah FCM token update setelah login dan checkAuth
 
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:presensi_app/core/api_client.dart';
 import 'package:presensi_app/core/storage.dart';
 import 'package:presensi_app/models/user.dart';
+import 'package:presensi_app/services/fcm_service.dart'; // ← BARU v2.1.0
 
 enum AuthStatus { unknown, authenticated, unauthenticated }
 
@@ -39,6 +41,11 @@ class AuthProvider extends ChangeNotifier {
         _currentUser = UserModel.fromJson(data);
         await AppStorage.saveUserData(data);
         _status = AuthStatus.authenticated;
+
+        // ── v2.1.0: Update FCM token setelah validasi auth ────
+        // Fire-and-forget — tidak perlu await agar tidak blok startup
+        FcmService().updateToken().ignore();
+
       } else {
         // Token tidak valid di server → paksa login ulang
         await AppStorage.clearAll();
@@ -84,6 +91,11 @@ class AuthProvider extends ChangeNotifier {
       _status      = AuthStatus.authenticated;
       _isLoading   = false;
       notifyListeners();
+
+      // ── v2.1.0: Update FCM token setelah login berhasil ───
+      // Fire-and-forget — tidak blok alur login
+      FcmService().updateToken().ignore();
+
       return true;
 
     } on ApiException catch (e) {
@@ -131,14 +143,16 @@ class AuthProvider extends ChangeNotifier {
 
   void updateFaceRegistered(bool value) {
     if (_currentUser == null) return;
-    _currentUser = UserModel(
-      id              : _currentUser!.id,
-      nimNidn         : _currentUser!.nimNidn,
-      namaLengkap     : _currentUser!.namaLengkap,
-      email           : _currentUser!.email,
-      role            : _currentUser!.role,
-      programStudi    : _currentUser!.programStudi,
-      isFaceRegistered: value,
+    _currentUser = _currentUser!.copyWith(isFaceRegistered: value);
+    notifyListeners();
+  }
+
+  // ── v2.1.0: Update kelas info ─────────────────────────────
+  void updateKelasInfo({String? kelasId, String? kodeKelas}) {
+    if (_currentUser == null) return;
+    _currentUser = _currentUser!.copyWith(
+      kelasId  : kelasId,
+      kodeKelas: kodeKelas,
     );
     notifyListeners();
   }
