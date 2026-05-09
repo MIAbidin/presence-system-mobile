@@ -741,7 +741,7 @@ class _KodeSesiScreenState extends State<KodeSesiScreen> {
         // v2.1.0: Overlay oval UMS (dipakai ulang dari ScanScreen)
         CustomPaint(
           size   : Size.infinite,
-          painter: _UMSOvalOverlayPainter(faceDetected: _faceDetected),
+          painter: UMSOvalOverlayPainter(faceDetected: _faceDetected),
         ),
 
         // Badge deteksi wajah

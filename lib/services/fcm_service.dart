@@ -5,7 +5,6 @@
 
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:presensi_app/core/api_client.dart';
-import 'package:presensi_app/core/constants.dart';
 import 'package:presensi_app/core/storage.dart';
 
 class FcmService {
@@ -83,56 +82,5 @@ class FcmService {
       // ignore: avoid_print
       print('[FcmService] Foreground message: ${message.notification?.title}');
     });
-  }
-}
-
-// ── Extension AppStorage untuk FCM Token ─────────────────────
-extension AppStorageFcmExtension on AppStorage {
-  static Future<void> saveFcmToken(String token) async {
-    await AppStorage.saveString(AppConstants.keyFcmToken, token);
-  }
-
-  static Future<String?> getFcmToken() async {
-    return await AppStorage.getString(AppConstants.keyFcmToken);
-  }
-}
-
-// ── Extension AppStorage untuk string generic ─────────────────
-extension on AppStorage {
-  static Future<void> saveString(String key, String value) async {
-    // Gunakan flutter_secure_storage yang sudah ada di AppStorage
-    // Implementasi delegasi ke FlutterSecureStorage
-    await _AppStorageHelper.write(key, value);
-  }
-
-  static Future<String?> getString(String key) async {
-    return await _AppStorageHelper.read(key);
-  }
-}
-
-class _AppStorageHelper {
-  static Future<void> write(String key, String value) async {
-    const storage = _SecureStorageAccess();
-    await storage.write(key, value);
-  }
-
-  static Future<String?> read(String key) async {
-    const storage = _SecureStorageAccess();
-    return await storage.read(key);
-  }
-}
-
-class _SecureStorageAccess {
-  const _SecureStorageAccess();
-
-  Future<void> write(String key, String value) async {
-    // Delegate ke AppStorage static method
-    // Ini adalah bridge agar FcmService bisa tulis ke secure storage
-    // tanpa import langsung flutter_secure_storage
-    await AppStorage.saveRaw(key: key, value: value);
-  }
-
-  Future<String?> read(String key) async {
-    return await AppStorage.getRaw(key: key);
   }
 }

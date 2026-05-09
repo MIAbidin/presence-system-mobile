@@ -8,7 +8,7 @@ class AppConstants {
   // Dev emulator Android : 10.0.2.2 = localhost laptop
   // Dev HP fisik         : ganti dengan IP jaringan laptop (ipconfig/ifconfig)
   // Production           : ganti dengan URL Render/Railway
-  static const String baseUrl = 'http://10.92.83.91:8000';
+  static const String baseUrl = 'http://10.101.65.92:8000';
 
   // ── Face Recognition ─────────────────────────────────────
   static const double faceAccuracyThreshold = 85.0;

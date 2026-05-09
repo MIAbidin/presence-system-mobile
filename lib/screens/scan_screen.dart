@@ -733,10 +733,10 @@ class _ScanScreenState extends State<ScanScreen>
 // Oval elegan dengan gradient border Navy + Gold UMS.
 // ══════════════════════════════════════════════════════════════
 
-class _UMSOvalOverlayPainter extends CustomPainter {
+class UMSOvalOverlayPainter extends CustomPainter {
   final bool faceDetected;
 
-  _UMSOvalOverlayPainter({required this.faceDetected});
+  UMSOvalOverlayPainter({required this.faceDetected});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -816,11 +816,9 @@ class _UMSOvalOverlayPainter extends CustomPainter {
     for (final angle in offsets) {
       canvas.drawArc(oval, angle - arcLen / 2, arcLen, false, paint);
     }
-
-    _ = rx; _ = ry; // suppress unused warning
   }
 
   @override
-  bool shouldRepaint(_UMSOvalOverlayPainter old) =>
+  bool shouldRepaint(UMSOvalOverlayPainter old) =>
       old.faceDetected != faceDetected;
 }
