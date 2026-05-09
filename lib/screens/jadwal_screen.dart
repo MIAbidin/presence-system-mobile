@@ -1,19 +1,32 @@
 // lib/screens/jadwal_screen.dart
+// v2.1.0 — Fase 2: Update JadwalScreen
+// Perubahan:
+// Tab Hari Ini:
+// - Kartu jadwal: badge kelas dan slot waktu 'Kelas A | Slot 1-2 | 07:00-08:40'
+// - Kartu jadwal: tampilkan nama dosen pengampu kelas mahasiswa ini
+// - Banner jadwal pengganti: jam baru, ruangan baru, MODE baru (Offline/Online)
+// - Badge 'Tamu' jika mahasiswa masuk via izin tamu
+//
+// Tab Mingguan:
+// - Setiap item: kode kelas + slot waktu
+// - Accordion: badge jumlah kelas
+// - Indikator perubahan jadwal pengganti
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
-import 'package:presensi_app/core/api_client.dart';
-import 'package:presensi_app/models/jadwal.dart';
 
-// ─── Konstanta warna (sesuai design system) ───────────────────
-const _kNavy      = Color(0xFF1E3A5F);
-const _kNavyLight = Color(0xFF2A5298);
-const _kAccent    = Color(0xFF00BFA5);
-const _kWarning   = Color(0xFFFFA726);
-const _kDanger    = Color(0xFFEF5350);
-const _kBgLight   = Color(0xFFF5F7FA);
+import 'package:presensi_app/core/api_client.dart';
+import 'package:presensi_app/core/constants.dart';
+import 'package:presensi_app/core/theme.dart';
+import 'package:presensi_app/models/jadwal.dart';
+import 'package:presensi_app/models/kelas.dart';
+import 'package:presensi_app/services/slot_service.dart';
+import 'package:presensi_app/widgets/kelas_badge.dart';
+import 'package:presensi_app/widgets/mode_badge.dart';
+import 'package:presensi_app/widgets/slot_label.dart';
+import 'package:presensi_app/widgets/empty_error_state.dart';
 
 const List<String> _hariList = [
   'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu',
@@ -34,23 +47,25 @@ class _JadwalScreenState extends State<JadwalScreen>
 
   late TabController _tabController;
 
-  // ── State: Jadwal Hari Ini ────────────────────────────────
-  List<JadwalModel> _jadwalHariIni = [];
-  bool   _isLoadingHariIni = true;
-  String? _errorHariIni;
+  // ── Jadwal hari ini ───────────────────────────────────────
+  List<JadwalModel> _jadwalHariIni      = [];
+  bool              _isLoadingHariIni   = true;
+  String?           _errorHariIni;
 
-  // ── State: Jadwal Mingguan ────────────────────────────────
+  // ── Jadwal mingguan ───────────────────────────────────────
   Map<String, List<JadwalModel>> _jadwalMingguan = {};
-  bool   _isLoadingMingguan = true;
-  String? _errorMingguan;
+  bool              _isLoadingMingguan  = true;
+  String?           _errorMingguan;
+  String?           _expandedHari;
 
-  // Hari yang sedang di-expand di mingguan
-  String? _expandedHari;
+  // ── Slot options (sudah di-cache oleh SlotService) ────────
+  List<SlotOption> _slotOptions = SlotDefaults.all;
 
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _initSlots();
     _fetchHariIni();
     _fetchMingguan();
   }
@@ -59,6 +74,12 @@ class _JadwalScreenState extends State<JadwalScreen>
   void dispose() {
     _tabController.dispose();
     super.dispose();
+  }
+
+  // ── Load slot options ─────────────────────────────────────
+  Future<void> _initSlots() async {
+    final slots = await SlotService().getSlotOptions();
+    if (mounted) setState(() => _slotOptions = slots);
   }
 
   // ── Fetch jadwal hari ini ─────────────────────────────────
@@ -90,18 +111,16 @@ class _JadwalScreenState extends State<JadwalScreen>
     try {
       final response = await ApiClient().get('/jadwal/mingguan');
       if (response.statusCode == 200) {
-        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final data    = jsonDecode(response.body) as Map<String, dynamic>;
         final grouped = <String, List<JadwalModel>>{};
         data.forEach((hari, list) {
           grouped[hari] = (list as List<dynamic>)
               .map((e) => JadwalModel.fromJson(e as Map<String, dynamic>))
               .toList();
         });
-        // Default expand ke hari ini
-        final hariIni = _namaHariIni();
         setState(() {
           _jadwalMingguan = grouped;
-          _expandedHari   = hariIni;
+          _expandedHari   = _namaHariIni();
         });
       } else {
         final err = jsonDecode(response.body);
@@ -115,55 +134,39 @@ class _JadwalScreenState extends State<JadwalScreen>
   }
 
   String _namaHariIni() {
-    const map = {
-      1: 'Senin', 2: 'Selasa', 3: 'Rabu', 4: 'Kamis',
-      5: 'Jumat', 6: 'Sabtu', 7: 'Minggu',
-    };
-    return map[DateTime.now().weekday] ?? 'Senin';
+    return AppConstants.namaHariDariWeekday(DateTime.now().weekday);
   }
 
-  // ── Helper: warna status ──────────────────────────────────
-  Color _statusColor(String? status, bool adaSesiAktif) {
-    switch (status) {
-      case 'hadir'    : return _kAccent;
-      case 'terlambat': return _kWarning;
-      case 'absen'    : return _kDanger;
-      default         : return adaSesiAktif ? _kNavy : Colors.grey.shade400;
-    }
-  }
-
-  IconData _statusIcon(String? status, bool adaSesiAktif) {
-    switch (status) {
-      case 'hadir'    : return Icons.check_circle_rounded;
-      case 'terlambat': return Icons.access_time_rounded;
-      case 'absen'    : return Icons.cancel_rounded;
-      default         : return adaSesiAktif
-          ? Icons.radio_button_checked_rounded
-          : Icons.radio_button_unchecked_rounded;
-    }
+  // ── Helper: label slot dari slotMulai/slotSelesai ─────────
+  String _slotRangeLabel(int? slotMulai, int? slotSelesai) {
+    if (slotMulai == null) return '';
+    final selesai = slotSelesai ?? slotMulai;
+    final jamMulai   = SlotOption.rangeLabel(slotMulai, selesai, _slotOptions)
+        .split(' – ')
+        .first;
+    final jamSelesai = SlotOption.rangeLabel(slotMulai, selesai, _slotOptions)
+        .split(' – ')
+        .last;
+    return 'Slot $slotMulai–$selesai  |  $jamMulai – $jamSelesai';
   }
 
   @override
   Widget build(BuildContext context) {
     super.build(context);
     return Scaffold(
-      backgroundColor: _kBgLight,
+      backgroundColor: AppColors.kBgLight,
       body: NestedScrollView(
         headerSliverBuilder: (ctx, _) => [
           SliverAppBar(
             pinned         : true,
-            expandedHeight : 120,
-            backgroundColor: _kNavy,
+            expandedHeight : 130,
+            backgroundColor: AppColors.kNavy,
             automaticallyImplyLeading: false,
             elevation      : 0,
             flexibleSpace  : FlexibleSpaceBar(
               background: Container(
                 decoration: const BoxDecoration(
-                  gradient: LinearGradient(
-                    begin : Alignment.topLeft,
-                    end   : Alignment.bottomRight,
-                    colors: [_kNavy, _kNavyLight],
-                  ),
+                  gradient: AppColors.kNavyGradient,
                 ),
                 child: SafeArea(
                   child: Padding(
@@ -171,22 +174,15 @@ class _JadwalScreenState extends State<JadwalScreen>
                     child  : Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text(
+                        Text(
                           'Jadwal Kuliah',
-                          style: TextStyle(
-                            color     : Colors.white,
-                            fontSize  : 22,
-                            fontWeight: FontWeight.bold,
-                          ),
+                          style: AppTypography.hero.copyWith(fontSize: 22),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           DateFormat('EEEE, d MMMM yyyy', 'id_ID')
                               .format(DateTime.now()),
-                          style: const TextStyle(
-                            color  : Colors.white70,
-                            fontSize: 13,
-                          ),
+                          style: AppTypography.heroSubtitle,
                         ),
                       ],
                     ),
@@ -195,13 +191,15 @@ class _JadwalScreenState extends State<JadwalScreen>
               ),
             ),
             bottom: TabBar(
-              controller  : _tabController,
-              indicatorColor: Colors.white,
-              indicatorWeight: 3,
-              labelColor  : Colors.white,
+              controller         : _tabController,
+              indicatorColor     : AppColors.kGold,
+              indicatorWeight    : 3,
+              labelColor         : Colors.white,
               unselectedLabelColor: Colors.white54,
-              labelStyle  : const TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 14),
+              labelStyle         : AppTypography.bodyBold.copyWith(
+                color: Colors.white),
+              unselectedLabelStyle: AppTypography.body2.copyWith(
+                color: Colors.white54),
               tabs: const [
                 Tab(text: 'Hari Ini'),
                 Tab(text: 'Mingguan'),
@@ -220,83 +218,85 @@ class _JadwalScreenState extends State<JadwalScreen>
     );
   }
 
-  // ─────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────
   // TAB 1: Jadwal Hari Ini
-  // ─────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────
 
   Widget _buildHariIniTab() {
     if (_isLoadingHariIni) {
-      return const Center(child: CircularProgressIndicator(color: _kNavy));
+      return Center(
+        child: CircularProgressIndicator(color: AppColors.kNavy),
+      );
     }
     if (_errorHariIni != null) {
-      return _ErrorView(error: _errorHariIni!, onRetry: _fetchHariIni);
+      return ErrorState(
+        message: _errorHariIni,
+        onRetry : _fetchHariIni,
+      );
     }
     if (_jadwalHariIni.isEmpty) {
-      return _EmptyView(
-        icon   : Icons.event_available_outlined,
-        message: 'Tidak ada jadwal hari ini',
-        sub    : 'Nikmati hari libur kuliah kamu 🎉',
+      return const EmptyState(
+        icon    : Icons.event_available_outlined,
+        title   : 'Tidak Ada Jadwal Hari Ini',
+        subtitle: 'Nikmati hari libur kuliah kamu 🎉',
       );
     }
 
     return RefreshIndicator(
       onRefresh: _fetchHariIni,
-      color    : _kNavy,
+      color    : AppColors.kNavy,
       child    : ListView.builder(
         padding    : const EdgeInsets.fromLTRB(16, 16, 16, 32),
         itemCount  : _jadwalHariIni.length,
         itemBuilder: (ctx, i) => _JadwalHariIniCard(
-          jadwal     : _jadwalHariIni[i],
-          statusColor: _statusColor(
-            _jadwalHariIni[i].statusPresensi,
-            _jadwalHariIni[i].adaSesiAktif,
-          ),
-          statusIcon : _statusIcon(
-            _jadwalHariIni[i].statusPresensi,
-            _jadwalHariIni[i].adaSesiAktif,
-          ),
-          onPresensi: () => context.go('/scan'),
+          jadwal      : _jadwalHariIni[i],
+          slotOptions : _slotOptions,
+          onPresensi  : () => context.go('/scan'),
         ),
       ),
     );
   }
 
-  // ─────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────
   // TAB 2: Jadwal Mingguan
-  // ─────────────────────────────────────────────────────────
+  // ────────────────────────────────────────────────────────────
 
   Widget _buildMingguanTab() {
     if (_isLoadingMingguan) {
-      return const Center(child: CircularProgressIndicator(color: _kNavy));
+      return Center(
+        child: CircularProgressIndicator(color: AppColors.kNavy),
+      );
     }
     if (_errorMingguan != null) {
-      return _ErrorView(error: _errorMingguan!, onRetry: _fetchMingguan);
+      return ErrorState(
+        message: _errorMingguan,
+        onRetry : _fetchMingguan,
+      );
     }
 
     final hariIni = _namaHariIni();
 
     return RefreshIndicator(
       onRefresh: _fetchMingguan,
-      color    : _kNavy,
+      color    : AppColors.kNavy,
       child    : ListView.builder(
         padding    : const EdgeInsets.fromLTRB(16, 16, 16, 32),
         itemCount  : _hariList.length,
         itemBuilder: (ctx, i) {
-          final hari     = _hariList[i];
-          final items    = _jadwalMingguan[hari] ?? [];
-          final isToday  = hari == hariIni;
-          final isOpen   = _expandedHari == hari;
+          final hari   = _hariList[i];
+          final items  = _jadwalMingguan[hari] ?? [];
+          final isToday = hari == hariIni;
+          final isOpen  = _expandedHari == hari;
 
           return _HariAccordion(
-            hari      : hari,
-            items     : items,
-            isToday   : isToday,
-            isExpanded: isOpen,
-            onTap     : () => setState(() =>
-              _expandedHari = isOpen ? null : hari),
-            statusColor: _statusColor,
-            statusIcon : _statusIcon,
-            onPresensi : () => context.go('/scan'),
+            hari        : hari,
+            items       : items,
+            isToday     : isToday,
+            isExpanded  : isOpen,
+            slotOptions : _slotOptions,
+            onTap       : () => setState(() =>
+                _expandedHari = isOpen ? null : hari),
+            onPresensi  : () => context.go('/scan'),
           );
         },
       ),
@@ -305,125 +305,186 @@ class _JadwalScreenState extends State<JadwalScreen>
 }
 
 // ─────────────────────────────────────────────────────────────
-// Widget: Kartu jadwal hari ini (besar, lengkap)
+// [DIPERBARUI v2.1.0] Kartu Jadwal Hari Ini
 // ─────────────────────────────────────────────────────────────
 
 class _JadwalHariIniCard extends StatelessWidget {
-  final JadwalModel  jadwal;
-  final Color        statusColor;
-  final IconData     statusIcon;
-  final VoidCallback onPresensi;
+  final JadwalModel    jadwal;
+  final List<SlotOption> slotOptions;
+  final VoidCallback   onPresensi;
 
   const _JadwalHariIniCard({
     required this.jadwal,
-    required this.statusColor,
-    required this.statusIcon,
+    required this.slotOptions,
     required this.onPresensi,
   });
 
+  Color _statusColor() {
+    switch (jadwal.statusPresensi) {
+      case 'hadir'    : return AppColors.kStatusHadir;
+      case 'terlambat': return AppColors.kStatusTerlambat;
+      case 'absen'    : return AppColors.kStatusAbsen;
+      default         : return jadwal.adaSesiAktif
+          ? AppColors.kNavy
+          : AppColors.kTextSecondary;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    final sesiAktif    = jadwal.adaSesiAktif;
+    final color         = _statusColor();
+    final sesiAktif     = jadwal.adaSesiAktif;
     final sudahPresensi = jadwal.sudahPresensi;
+    // Label jam slot (jika ada data slot)
+    final labelSlot = jadwal.slotMulai != null
+        ? SlotOption.rangeLabel(
+            jadwal.slotMulai!,
+            jadwal.slotSelesai ?? jadwal.slotMulai!,
+            slotOptions,
+          )
+        : jadwal.labelJam;
 
     return Container(
       margin    : const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
-        color       : Colors.white,
+        color       : AppColors.kSurface,
         borderRadius: BorderRadius.circular(16),
         border      : sesiAktif && !sudahPresensi
-            ? Border.all(color: _kNavy.withOpacity(0.4), width: 1.5)
+            ? Border.all(
+                color: AppColors.kNavy.withOpacity(0.30), width: 1.5)
             : null,
-        boxShadow: [
-          BoxShadow(
-            color     : Colors.black.withOpacity(0.06),
-            blurRadius: 10,
-            offset    : const Offset(0, 3),
-          ),
-        ],
+        boxShadow   : AppDecorations.cardShadow,
       ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header kartu ───────────────────────────────────
+          // ── Header kartu ─────────────────────────────────
           Padding(
             padding: const EdgeInsets.all(16),
             child  : Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Garis vertikal warna status
+                // Garis vertikal status
                 Container(
-                  width : 4,
-                  height: 56,
+                  width     : 4,
+                  height    : 70,
                   decoration: BoxDecoration(
-                    color       : statusColor,
+                    color       : color,
                     borderRadius: BorderRadius.circular(2),
                   ),
                 ),
                 const SizedBox(width: 14),
-
-                // Info matakuliah
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // ── Baris 1: kode MK + badge kelas + badge tamu ──
                       Row(
                         children: [
                           Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 3),
                             decoration: BoxDecoration(
-                              color       : _kNavy.withOpacity(0.08),
+                              color      : AppColors.kNavy.withOpacity(0.08),
                               borderRadius: BorderRadius.circular(6),
                             ),
                             child: Text(
                               jadwal.kode,
-                              style: const TextStyle(
-                                color     : _kNavy,
-                                fontSize  : 11,
-                                fontWeight: FontWeight.bold,
+                              style: AppTypography.badge.copyWith(
+                                color  : AppColors.kNavy,
+                                fontSize: 11,
                               ),
                             ),
                           ),
-                          const SizedBox(width: 8),
-                          Text(
-                            '${jadwal.sks} SKS',
-                            style: TextStyle(
-                              color  : Colors.grey.shade500,
-                              fontSize: 11,
-                            ),
-                          ),
+                          // ── [BARU] Badge kelas A/B/C ─────
+                          if (jadwal.kodeKelas != null &&
+                              jadwal.kodeKelas!.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            KelasBadge(kodeKelas: jadwal.kodeKelas!),
+                          ],
+                          // ── [BARU] Badge tamu ────────────
+                          if (jadwal.isTamu) ...[
+                            const SizedBox(width: 6),
+                            const TamuBadge(),
+                          ],
                         ],
                       ),
                       const SizedBox(height: 6),
+
+                      // ── Baris 2: nama MK ─────────────────
                       Text(
                         jadwal.nama,
-                        style: const TextStyle(
-                          color     : _kNavy,
-                          fontSize  : 15,
-                          fontWeight: FontWeight.bold,
+                        style: AppTypography.bodyBold.copyWith(
+                          color  : AppColors.kNavyDark,
+                          fontSize: 15,
                         ),
                       ),
-                      const SizedBox(height: 6),
+                      const SizedBox(height: 5),
+
+                      // ── [BARU] Baris 3: nama dosen ────────
+                      if (jadwal.dosenNama != null &&
+                          jadwal.dosenNama!.isNotEmpty) ...[
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.person_outline_rounded,
+                              size : 12,
+                              color: AppColors.kTextSecondary,
+                            ),
+                            const SizedBox(width: 4),
+                            Flexible(
+                              child: Text(
+                                jadwal.dosenNama!,
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.kTextSecondary,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 5),
+                      ],
+
+                      // ── [BARU] Baris 4: slot waktu + ruangan ─
                       Row(
                         children: [
-                          Icon(Icons.access_time_rounded,
-                            size: 13, color: Colors.grey.shade500),
-                          const SizedBox(width: 4),
-                          Text(
-                            jadwal.labelJam,
-                            style: TextStyle(
-                              color: Colors.grey.shade600, fontSize: 12),
+                          Icon(
+                            Icons.access_time_rounded,
+                            size : 12,
+                            color: AppColors.kTextSecondary,
                           ),
-                          if (jadwal.ruangan != null) ...[
-                            const SizedBox(width: 12),
-                            Icon(Icons.room_outlined,
-                              size: 13, color: Colors.grey.shade500),
+                          const SizedBox(width: 4),
+                          // Prioritas slot, fallback ke jam langsung
+                          if (jadwal.slotMulai != null)
+                            Flexible(
+                              child: SlotLabel(
+                                slotMulai  : jadwal.slotMulai,
+                                slotSelesai: jadwal.slotSelesai,
+                                fontSize   : 12,
+                              ),
+                            )
+                          else
+                            Text(
+                              labelSlot,
+                              style: AppTypography.caption.copyWith(
+                                color: AppColors.kTextSecondary,
+                              ),
+                            ),
+                          if (jadwal.ruanganEfektif != '-') ...[
+                            const SizedBox(width: 10),
+                            Icon(
+                              Icons.room_outlined,
+                              size : 12,
+                              color: AppColors.kTextSecondary,
+                            ),
                             const SizedBox(width: 4),
-                            Expanded(
+                            Flexible(
                               child: Text(
-                                jadwal.ruangan!,
-                                style: TextStyle(
-                                  color: Colors.grey.shade600, fontSize: 12),
+                                jadwal.ruanganEfektif,
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.kTextSecondary,
+                                ),
                                 overflow: TextOverflow.ellipsis,
                               ),
                             ),
@@ -433,96 +494,41 @@ class _JadwalHariIniCard extends StatelessWidget {
                     ],
                   ),
                 ),
-
                 // Badge status presensi
-                _StatusBadge(
-                  label: jadwal.labelStatus,
-                  color: statusColor,
-                  icon : statusIcon,
+                StatusPresensiiBadge(
+                  status  : jadwal.statusPresensi ?? '',
+                  fontSize: 10,
                 ),
               ],
             ),
           ),
 
-          // ── Banner sesi aktif / tombol presensi ────────────
+          // ── [BARU] Banner jadwal pengganti ───────────────
+          if (jadwal.adaJadwalPengganti) ...[
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+              child  : JadwalPenggantiAlert(
+                jamMulai  : jadwal.jamMulaiPengganti,
+                jamSelesai: jadwal.jamSelesaiPengganti,
+                ruangan   : jadwal.ruanganPengganti,
+                mode      : jadwal.modePengganti,
+              ),
+            ),
+          ],
+
+          // ── Banner sesi aktif / presensi ──────────────────
           if (sesiAktif && !sudahPresensi) ...[
-            Container(
-              margin    : const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              padding   : const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 12),
-              decoration: BoxDecoration(
-                color       : _kNavy.withOpacity(0.06),
-                borderRadius: BorderRadius.circular(10),
-                border      : Border.all(
-                  color: _kNavy.withOpacity(0.15)),
-              ),
-              child: Row(
-                children: [
-                  const Icon(
-                    Icons.radio_button_checked_rounded,
-                    color: _kNavy, size: 16),
-                  const SizedBox(width: 8),
-                  const Expanded(
-                    child: Text(
-                      'Sesi sedang berlangsung',
-                      style: TextStyle(
-                        color     : _kNavy,
-                        fontSize  : 13,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: onPresensi,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 7),
-                      decoration: BoxDecoration(
-                        color       : _kNavy,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Text(
-                        'Presensi',
-                        style: TextStyle(
-                          color     : Colors.white,
-                          fontSize  : 12,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              child  : _SesiAktifRow(onPresensi: onPresensi),
             ),
           ] else if (sudahPresensi) ...[
-            Container(
-              margin    : const EdgeInsets.fromLTRB(16, 0, 16, 16),
-              padding   : const EdgeInsets.symmetric(
-                horizontal: 16, vertical: 10),
-              decoration: BoxDecoration(
-                color       : statusColor.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(statusIcon, color: statusColor, size: 16),
-                  const SizedBox(width: 6),
-                  Text(
-                    jadwal.statusPresensi == 'hadir'
-                        ? 'Presensi tercatat ✓'
-                        : jadwal.statusPresensi == 'terlambat'
-                            ? 'Tercatat terlambat'
-                            : 'Tidak hadir',
-                    style: TextStyle(
-                      color     : statusColor,
-                      fontSize  : 13,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ],
-              ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+              child  : _PresensiTercatat(status: jadwal.statusPresensi ?? ''),
             ),
+          ] else ...[
+            const SizedBox(height: 16),
           ],
         ],
       ),
@@ -530,30 +536,127 @@ class _JadwalHariIniCard extends StatelessWidget {
   }
 }
 
+class _SesiAktifRow extends StatelessWidget {
+  final VoidCallback onPresensi;
+  const _SesiAktifRow({required this.onPresensi});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color       : AppColors.kNavy.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(10),
+        border      : Border.all(
+          color: AppColors.kNavy.withOpacity(0.12)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width : 8,
+            height: 8,
+            decoration: const BoxDecoration(
+              color: AppColors.kGreen,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Sesi sedang berlangsung',
+              style: AppTypography.label.copyWith(
+                color     : AppColors.kNavy,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          GestureDetector(
+            onTap : onPresensi,
+            child : Container(
+              padding: const EdgeInsets.symmetric(
+                horizontal: 14, vertical: 7),
+              decoration: BoxDecoration(
+                color      : AppColors.kNavy,
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Presensi',
+                style: AppTypography.buttonSmall.copyWith(
+                  color  : Colors.white,
+                  fontSize: 12,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PresensiTercatat extends StatelessWidget {
+  final String status;
+  const _PresensiTercatat({required this.status});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = AppColors.statusColor(status);
+    final label = status == 'hadir'
+        ? 'Presensi tercatat ✓'
+        : status == 'terlambat'
+            ? 'Tercatat terlambat'
+            : 'Tidak hadir';
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color       : color.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(Icons.check_circle_outline, color: color, size: 15),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: AppTypography.label.copyWith(
+              color     : color,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ─────────────────────────────────────────────────────────────
-// Widget: Accordion hari untuk jadwal mingguan
+// [DIPERBARUI v2.1.0] Accordion Hari — Mingguan
 // ─────────────────────────────────────────────────────────────
 
 class _HariAccordion extends StatelessWidget {
-  final String   hari;
-  final List<JadwalModel> items;
-  final bool     isToday;
-  final bool     isExpanded;
-  final VoidCallback onTap;
-  final Color    Function(String?, bool) statusColor;
-  final IconData Function(String?, bool) statusIcon;
-  final VoidCallback onPresensi;
+  final String              hari;
+  final List<JadwalModel>   items;
+  final bool                isToday;
+  final bool                isExpanded;
+  final List<SlotOption>    slotOptions;
+  final VoidCallback        onTap;
+  final VoidCallback        onPresensi;
 
   const _HariAccordion({
     required this.hari,
     required this.items,
     required this.isToday,
     required this.isExpanded,
+    required this.slotOptions,
     required this.onTap,
-    required this.statusColor,
-    required this.statusIcon,
     required this.onPresensi,
   });
+
+  // ── Jumlah kelas yang punya jadwal pengganti ──────────────
+  int get _jumlahPengganti =>
+      items.where((j) => j.adaJadwalPengganti).length;
 
   @override
   Widget build(BuildContext context) {
@@ -562,12 +665,13 @@ class _HariAccordion extends StatelessWidget {
     return Container(
       margin    : const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
-        color       : Colors.white,
+        color       : AppColors.kSurface,
         borderRadius: BorderRadius.circular(14),
         border      : isToday
-            ? Border.all(color: _kNavy.withOpacity(0.3), width: 1.5)
+            ? Border.all(
+                color: AppColors.kNavy.withOpacity(0.25), width: 1.5)
             : null,
-        boxShadow: [
+        boxShadow   : [
           BoxShadow(
             color     : Colors.black.withOpacity(0.04),
             blurRadius: 8,
@@ -579,23 +683,23 @@ class _HariAccordion extends StatelessWidget {
         children: [
           // ── Header accordion ──────────────────────────────
           InkWell(
-            onTap        : onTap,
-            borderRadius : BorderRadius.circular(14),
+            onTap       : onTap,
+            borderRadius: BorderRadius.circular(14),
             child: Padding(
               padding: const EdgeInsets.symmetric(
                 horizontal: 16, vertical: 14),
               child: Row(
                 children: [
-                  // Hari + badge hari ini
                   Expanded(
                     child: Row(
                       children: [
                         Text(
                           hari,
-                          style: TextStyle(
-                            color     : isToday ? _kNavy : Colors.black87,
-                            fontSize  : 15,
-                            fontWeight: FontWeight.bold,
+                          style: AppTypography.bodyBold.copyWith(
+                            color  : isToday
+                                ? AppColors.kNavy
+                                : AppColors.kTextPrimary,
+                            fontSize: 15,
                           ),
                         ),
                         if (isToday) ...[
@@ -604,15 +708,14 @@ class _HariAccordion extends StatelessWidget {
                             padding: const EdgeInsets.symmetric(
                               horizontal: 8, vertical: 2),
                             decoration: BoxDecoration(
-                              color       : _kNavy,
+                              color      : AppColors.kNavy,
                               borderRadius: BorderRadius.circular(10),
                             ),
-                            child: const Text(
+                            child: Text(
                               'Hari ini',
-                              style: TextStyle(
-                                color   : Colors.white,
+                              style: AppTypography.badge.copyWith(
+                                color  : Colors.white,
                                 fontSize: 10,
-                                fontWeight: FontWeight.bold,
                               ),
                             ),
                           ),
@@ -620,16 +723,49 @@ class _HariAccordion extends StatelessWidget {
                       ],
                     ),
                   ),
-
-                  // Jumlah matakuliah
-                  Text(
-                    hasItems ? '${items.length} mk' : 'Libur',
-                    style: TextStyle(
-                      color  : hasItems
-                          ? Colors.grey.shade500
-                          : Colors.grey.shade400,
-                      fontSize: 12,
-                    ),
+                  // ── [BARU] Badge jumlah kelas + indikator pengganti ──
+                  Row(
+                    children: [
+                      if (_jumlahPengganti > 0) ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
+                          decoration: BoxDecoration(
+                            color       : AppColors.kGold.withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(8),
+                            border      : Border.all(
+                              color: AppColors.kGold.withOpacity(0.40)),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children    : [
+                              Icon(
+                                Icons.swap_horiz_rounded,
+                                size : 10,
+                                color: AppColors.kWarning,
+                              ),
+                              const SizedBox(width: 3),
+                              Text(
+                                '$_jumlahPengganti pengganti',
+                                style: AppTypography.badge.copyWith(
+                                  color  : AppColors.kWarning,
+                                  fontSize: 9,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                      ],
+                      Text(
+                        hasItems ? '${items.length} kelas' : 'Libur',
+                        style: AppTypography.caption.copyWith(
+                          color: hasItems
+                              ? AppColors.kTextSecondary
+                              : AppColors.kTextSecondary.withOpacity(0.5),
+                        ),
+                      ),
+                    ],
                   ),
                   const SizedBox(width: 8),
                   AnimatedRotation(
@@ -637,7 +773,7 @@ class _HariAccordion extends StatelessWidget {
                     duration: const Duration(milliseconds: 200),
                     child   : Icon(
                       Icons.keyboard_arrow_down_rounded,
-                      color: Colors.grey.shade400,
+                      color: AppColors.kTextSecondary,
                     ),
                   ),
                 ],
@@ -657,21 +793,21 @@ class _HariAccordion extends StatelessWidget {
                     child: Container(
                       padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color       : Colors.grey.shade50,
+                        color       : AppColors.kSoftGray.withOpacity(0.5),
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: [
-                          Icon(Icons.beach_access_rounded,
-                            color: Colors.grey.shade300, size: 20),
+                          Icon(
+                            Icons.beach_access_rounded,
+                            color: AppColors.kSoftGray,
+                            size : 18,
+                          ),
                           const SizedBox(width: 8),
                           Text(
                             'Tidak ada jadwal',
-                            style: TextStyle(
-                              color  : Colors.grey.shade400,
-                              fontSize: 13,
-                            ),
+                            style: AppTypography.body2,
                           ),
                         ],
                       ),
@@ -680,15 +816,14 @@ class _HariAccordion extends StatelessWidget {
                 : Padding(
                     padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
                     child: Column(
-                      children: items.map((mk) => _MingguanItem(
-                        jadwal     : mk,
-                        isToday    : isToday,
-                        statusColor: statusColor(
-                          mk.statusPresensi, mk.adaSesiAktif),
-                        statusIcon : statusIcon(
-                          mk.statusPresensi, mk.adaSesiAktif),
-                        onPresensi : onPresensi,
-                      )).toList(),
+                      children: items
+                          .map((mk) => _MingguanItem(
+                                jadwal     : mk,
+                                isToday    : isToday,
+                                slotOptions: slotOptions,
+                                onPresensi : onPresensi,
+                              ))
+                          .toList(),
                     ),
                   ),
             secondChild: const SizedBox.shrink(),
@@ -700,262 +835,250 @@ class _HariAccordion extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Widget: Item matakuliah di jadwal mingguan
+// [DIPERBARUI v2.1.0] Item Mingguan
 // ─────────────────────────────────────────────────────────────
 
 class _MingguanItem extends StatelessWidget {
-  final JadwalModel  jadwal;
-  final bool         isToday;
-  final Color        statusColor;
-  final IconData     statusIcon;
-  final VoidCallback onPresensi;
+  final JadwalModel    jadwal;
+  final bool           isToday;
+  final List<SlotOption> slotOptions;
+  final VoidCallback   onPresensi;
 
   const _MingguanItem({
     required this.jadwal,
     required this.isToday,
-    required this.statusColor,
-    required this.statusIcon,
+    required this.slotOptions,
     required this.onPresensi,
   });
 
   @override
   Widget build(BuildContext context) {
+    // Jam efektif (prioritas jadwal pengganti)
+    final jamMulaiEfektif   = jadwal.adaJadwalPengganti
+        ? (jadwal.jamMulaiPengganti   ?? jadwal.jamMulai)
+        : jadwal.jamMulai;
+    final jamSelesaiEfektif = jadwal.adaJadwalPengganti
+        ? (jadwal.jamSelesaiPengganti ?? jadwal.jamSelesai)
+        : jadwal.jamSelesai;
+
+    // Label slot jika ada
+    final slotLabel = jadwal.slotMulai != null
+        ? SlotOption.rangeLabel(
+            jadwal.slotMulai!,
+            jadwal.slotSelesai ?? jadwal.slotMulai!,
+            slotOptions,
+          )
+        : '${jamMulaiEfektif ?? "-"} – ${jamSelesaiEfektif ?? "-"}';
+
     return Container(
       margin    : const EdgeInsets.only(bottom: 8),
-      padding   : const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color       : Colors.grey.shade50,
+        color       : AppColors.kBgLight,
         borderRadius: BorderRadius.circular(10),
-        border      : Border.all(color: Colors.grey.shade100),
+        border      : Border.all(color: AppColors.kSoftGray),
       ),
-      child: Row(
+      child: Column(
         children: [
-          // Jam
-          SizedBox(
-            width: 52,
-            child: Column(
+          Padding(
+            padding: const EdgeInsets.all(12),
+            child  : Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  jadwal.jamMulai ?? '-',
-                  style: const TextStyle(
-                    color     : _kNavy,
-                    fontSize  : 13,
-                    fontWeight: FontWeight.bold,
+                // ── Jam mulai + selesai ───────────────────
+                SizedBox(
+                  width: 50,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        jamMulaiEfektif ?? '-',
+                        style: AppTypography.bodyBold.copyWith(
+                          color  : AppColors.kNavy,
+                          fontSize: 13,
+                        ),
+                      ),
+                      Text(
+                        jamSelesaiEfektif ?? '',
+                        style: AppTypography.caption,
+                      ),
+                    ],
                   ),
                 ),
-                Text(
-                  jadwal.jamSelesai ?? '',
-                  style: TextStyle(
-                    color  : Colors.grey.shade400,
-                    fontSize: 11,
+                // Divider vertikal
+                Container(
+                  width : 1,
+                  height: 42,
+                  color : AppColors.kSoftGray,
+                  margin: const EdgeInsets.symmetric(horizontal: 10),
+                ),
+                // ── Info MK ──────────────────────────────
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Nama MK + badge kelas
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              jadwal.nama,
+                              style: AppTypography.bodyBold.copyWith(
+                                color  : AppColors.kNavyDark,
+                                fontSize: 13,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                          // ── [BARU] Badge kelas ───────────
+                          if (jadwal.kodeKelas != null &&
+                              jadwal.kodeKelas!.isNotEmpty) ...[
+                            const SizedBox(width: 6),
+                            KelasBadge(
+                              kodeKelas : jadwal.kodeKelas!,
+                              fontSize  : 9,
+                              showPrefix: false,
+                            ),
+                          ],
+                          if (jadwal.isTamu) ...[
+                            const SizedBox(width: 4),
+                            const TamuBadge(),
+                          ],
+                        ],
+                      ),
+                      const SizedBox(height: 3),
+                      // ── [BARU] Slot waktu ────────────────
+                      Row(
+                        children: [
+                          Icon(
+                            Icons.access_time_outlined,
+                            size : 11,
+                            color: AppColors.kTextSecondary,
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            slotLabel,
+                            style: AppTypography.caption,
+                          ),
+                        ],
+                      ),
+                      if (jadwal.ruanganEfektif != '-') ...[
+                        const SizedBox(height: 2),
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.room_outlined,
+                              size : 11,
+                              color: AppColors.kTextSecondary,
+                            ),
+                            const SizedBox(width: 3),
+                            Text(
+                              jadwal.ruanganEfektif,
+                              style: AppTypography.caption,
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
                   ),
                 ),
-              ],
-            ),
-          ),
-
-          // Garis vertikal
-          Container(
-            width : 1,
-            height: 36,
-            color : Colors.grey.shade200,
-            margin: const EdgeInsets.symmetric(horizontal: 10),
-          ),
-
-          // Info
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  jadwal.nama,
-                  style: const TextStyle(
-                    color     : _kNavy,
-                    fontSize  : 13,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  overflow: TextOverflow.ellipsis,
-                ),
-                if (jadwal.ruangan != null) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    jadwal.ruangan!,
-                    style: TextStyle(
-                      color  : Colors.grey.shade500,
-                      fontSize: 11,
+                // ── Status / tombol presensi (hari ini saja) ──
+                if (isToday) ...[
+                  const SizedBox(width: 8),
+                  if (jadwal.adaSesiAktif && !jadwal.sudahPresensi)
+                    GestureDetector(
+                      onTap : onPresensi,
+                      child : Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 5),
+                        decoration: BoxDecoration(
+                          color      : AppColors.kNavy,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Text(
+                          'Presensi',
+                          style: AppTypography.buttonSmall.copyWith(
+                            color  : Colors.white,
+                            fontSize: 11,
+                          ),
+                        ),
+                      ),
+                    )
+                  else if (jadwal.statusPresensi != null)
+                    StatusPresensiiBadge(
+                      status  : jadwal.statusPresensi!,
+                      fontSize: 9,
                     ),
-                  ),
                 ],
               ],
             ),
           ),
 
-          // Status (hanya hari ini)
-          if (isToday) ...[
-            if (jadwal.adaSesiAktif && !jadwal.sudahPresensi)
-              GestureDetector(
-                onTap: onPresensi,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 5),
-                  decoration: BoxDecoration(
-                    color       : _kNavy,
-                    borderRadius: BorderRadius.circular(8),
+          // ── [BARU] Banner jadwal pengganti di mingguan ───
+          if (jadwal.adaJadwalPengganti) ...[
+            Container(
+              margin : const EdgeInsets.fromLTRB(12, 0, 12, 12),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+              decoration: BoxDecoration(
+                color       : AppColors.kGold.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(8),
+                border      : Border(
+                  left: BorderSide(color: AppColors.kGold, width: 3),
+                ),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.swap_horiz_rounded,
+                    size : 14,
+                    color: AppColors.kWarning,
                   ),
-                  child: const Text(
-                    'Presensi',
-                    style: TextStyle(
-                      color    : Colors.white,
-                      fontSize : 11,
-                      fontWeight: FontWeight.bold,
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Jadwal Diganti',
+                          style: AppTypography.badge.copyWith(
+                            color    : AppColors.kWarning,
+                            fontSize : 10,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                        const SizedBox(height: 2),
+                        // Tampilkan mode baru jika ada
+                        Text(
+                          _buildPenggantiDetail(jadwal),
+                          style: AppTypography.caption,
+                        ),
+                      ],
                     ),
                   ),
-                ),
-              )
-            else
-              Icon(statusIcon, color: statusColor, size: 20),
-          ],
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// Widget: Badge status presensi
-// ─────────────────────────────────────────────────────────────
-
-class _StatusBadge extends StatelessWidget {
-  final String   label;
-  final Color    color;
-  final IconData icon;
-
-  const _StatusBadge({
-    required this.label,
-    required this.color,
-    required this.icon,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-      decoration: BoxDecoration(
-        color       : color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(20),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, color: color, size: 12),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              color     : color,
-              fontSize  : 11,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// Widget: Empty state
-// ─────────────────────────────────────────────────────────────
-
-class _EmptyView extends StatelessWidget {
-  final IconData icon;
-  final String   message;
-  final String   sub;
-
-  const _EmptyView({
-    required this.icon,
-    required this.message,
-    required this.sub,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(icon, size: 72, color: Colors.grey.shade200),
-          const SizedBox(height: 16),
-          Text(
-            message,
-            style: const TextStyle(
-              color     : _kNavy,
-              fontSize  : 16,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            sub,
-            style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ─────────────────────────────────────────────────────────────
-// Widget: Error state
-// ─────────────────────────────────────────────────────────────
-
-class _ErrorView extends StatelessWidget {
-  final String       error;
-  final VoidCallback onRetry;
-
-  const _ErrorView({required this.error, required this.onRetry});
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.wifi_off_rounded,
-              size: 64, color: Colors.grey.shade300),
-            const SizedBox(height: 16),
-            const Text(
-              'Gagal memuat jadwal',
-              style: TextStyle(
-                color     : _kNavy,
-                fontSize  : 16,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              error,
-              textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 13),
-            ),
-            const SizedBox(height: 20),
-            ElevatedButton.icon(
-              onPressed: onRetry,
-              icon     : const Icon(Icons.refresh_rounded),
-              label    : const Text('Coba Lagi'),
-              style    : ElevatedButton.styleFrom(
-                backgroundColor: _kNavy,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(10)),
+                ],
               ),
             ),
           ],
-        ),
+        ],
       ),
     );
+  }
+
+  String _buildPenggantiDetail(JadwalModel jadwal) {
+    final parts = <String>[];
+    if (jadwal.jamMulaiPengganti != null &&
+        jadwal.jamSelesaiPengganti != null) {
+      parts.add(
+          '${jadwal.jamMulaiPengganti} – ${jadwal.jamSelesaiPengganti}');
+    }
+    if (jadwal.ruanganPengganti != null) {
+      parts.add(jadwal.ruanganPengganti!);
+    }
+    // ── [BARU] Mode dari jadwal pengganti ────────────────────
+    if (jadwal.modePengganti != null) {
+      parts.add(jadwal.modePengganti!.toLowerCase() == 'online'
+          ? '💻 Online'
+          : '📍 Tatap Muka');
+    }
+    return parts.join(' · ');
   }
 }
