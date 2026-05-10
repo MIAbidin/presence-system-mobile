@@ -1,17 +1,27 @@
 // lib/screens/dosen/main_dosen_screen.dart
-// Shell utama dosen — PageView 4 tab:
-// Tab 0: Beranda | Tab 1: Monitor | Tab 2: Rekap | Tab 3: Profil
+// v2.1.0 Fase 6 UPDATE — PageView 5 tab:
+// Tab 0: Beranda  | Tab 1: Jadwal (BARU) | Tab 2: Monitor
+// Tab 3: Rekap    | Tab 4: Profil
+//
+// Perubahan dari v2.0.0 (4 tab):
+// - Tambah JadwalDosenScreen sebagai tab index 1
+// - Monitor geser dari index 1 → 2
+// - Rekap geser dari index 2 → 3
+// - Profil geser dari index 3 → 4
+// - BottomNavDosen kini pakai DosenTabIndex.monitor (= 2) untuk badge
 
 import 'package:flutter/material.dart';
 
 import 'package:presensi_app/screens/dosen/beranda_dosen_screen.dart';
+import 'package:presensi_app/screens/dosen/jadwal_dosen_screen.dart';
 import 'package:presensi_app/screens/dosen/dashboard_dosen.dart';
 import 'package:presensi_app/screens/dosen/rekap_screen.dart';
 import 'package:presensi_app/screens/profil_screen.dart';
 import 'package:presensi_app/widgets/bottom_nav_dosen.dart';
 
 class MainDosenScreen extends StatefulWidget {
-  /// Index tab awal (0=Beranda, 1=Monitor, 2=Rekap, 3=Profil)
+  /// Index tab awal
+  /// 0=Beranda, 1=Jadwal, 2=Monitor, 3=Rekap, 4=Profil
   final int     initialIndex;
 
   /// Jika tidak null, tab Monitor langsung load sesi ini
@@ -28,19 +38,19 @@ class MainDosenScreen extends StatefulWidget {
 }
 
 class _MainDosenScreenState extends State<MainDosenScreen> {
-  late int           _currentIndex;
+  late int            _currentIndex;
   late PageController _pageController;
 
   // Key untuk DashboardDosen agar bisa update sesiId dari luar
   final _dashboardKey = GlobalKey<DashboardDosenState>();
 
-  // Apakah ada sesi aktif — untuk badge di tab Monitor
+  // Apakah ada sesi aktif — untuk badge di tab Monitor (index 2)
   bool _adaSesiAktif = false;
 
   @override
   void initState() {
     super.initState();
-    _currentIndex  = widget.initialIndex;
+    _currentIndex   = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
   }
 
@@ -60,18 +70,17 @@ class _MainDosenScreenState extends State<MainDosenScreen> {
     );
   }
 
-  /// Dipanggil dari BerandaDosenScreen saat tap "Monitor Live"
-  /// → pindah ke tab Monitor dengan sesiId tertentu
+  /// Dipanggil dari BerandaDosenScreen atau JadwalDosenScreen
+  /// saat tap "Monitor Live" → pindah ke tab Monitor dengan sesiId
   void goToMonitor(String? sesiId) {
-    // Update sesiId di DashboardDosen
     if (sesiId != null) {
       _dashboardKey.currentState?.loadSesi(sesiId);
     }
-    _onTabTapped(1);
+    _onTabTapped(DosenTabIndex.monitor);
   }
 
   /// Dipanggil dari DashboardDosen atau BerandaDosenScreen
-  /// untuk update badge sesi aktif
+  /// untuk update badge sesi aktif di tab Monitor
   void setAdaSesiAktif(bool value) {
     if (_adaSesiAktif != value) {
       setState(() => _adaSesiAktif = value);
@@ -80,28 +89,31 @@ class _MainDosenScreenState extends State<MainDosenScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // Buat pages di sini agar bisa pass callback antar tab
+    // Pages dibangun di sini agar callback antar tab bisa diteruskan
     final pages = <Widget>[
       // Tab 0: Beranda
       BerandaDosenScreen(
+        onGoToMonitor     : goToMonitor,
+        onSesiAktifChanged: setAdaSesiAktif,
+      ),
+
+      // Tab 1: Jadwal (BARU Fase 6.2)
+      JadwalDosenScreen(
         onGoToMonitor: goToMonitor,
-        onSesiAktifChanged: setAdaSesiAktif,
       ),
 
-      // Tab 1: Monitor
+      // Tab 2: Monitor
       DashboardDosen(
-        key          : _dashboardKey,
-        // Kalau masuk dari /dosen/monitor?sesi_id=xxx
-        initialSesiId: widget.monitorSesiId,
+        key               : _dashboardKey,
+        initialSesiId     : widget.monitorSesiId,
         onSesiAktifChanged: setAdaSesiAktif,
-        // Callback ke beranda jika ingin buka sesi
-        onGoToBeranda: () => _onTabTapped(0),
+        onGoToBeranda     : () => _onTabTapped(DosenTabIndex.beranda),
       ),
 
-      // Tab 2: Rekap
+      // Tab 3: Rekap
       const RekapListScreen(),
 
-      // Tab 3: Profil
+      // Tab 4: Profil
       const ProfilScreen(),
     ];
 

@@ -1,8 +1,8 @@
 // lib/services/notification_service.dart
-// v2.1.0 — Fase 5: Setup flutter_local_notifications
-// Menampilkan notifikasi FCM saat app di foreground (karena Firebase tidak
-// otomatis tampilkan notif saat app terbuka di Android).
-// Handle navigasi dari notifikasi (onMessageOpenedApp + getInitialMessage).
+// v2.1.0 Fase 6 UPDATE
+// - pengingatBukaSesi sekarang navigasi ke /dosen/jadwal (bukan /dosen/home)
+//   agar dosen langsung lihat jadwal hari ini dan bisa buka sesi dari sana.
+// Setup flutter_local_notifications + channel Android/iOS.
 
 import 'dart:convert';
 import 'package:firebase_messaging/firebase_messaging.dart';
@@ -77,9 +77,9 @@ class NotificationService {
       AndroidNotificationChannel(
     'presensi_channel',
     'Presensi',
-    description : 'Notifikasi status presensi mahasiswa',
-    importance  : Importance.high,
-    playSound   : true,
+    description    : 'Notifikasi status presensi mahasiswa',
+    importance     : Importance.high,
+    playSound      : true,
     enableVibration: true,
   );
 
@@ -87,31 +87,27 @@ class NotificationService {
       AndroidNotificationChannel(
     'sesi_channel',
     'Sesi Perkuliahan',
-    description : 'Notifikasi pembukaan dan penutupan sesi',
-    importance  : Importance.high,
-    playSound   : true,
+    description: 'Notifikasi pembukaan dan penutupan sesi',
+    importance : Importance.high,
+    playSound  : true,
   );
 
   static const AndroidNotificationChannel _channelPengingat =
       AndroidNotificationChannel(
     'pengingat_channel',
     'Pengingat',
-    description : 'Pengingat jadwal 15 menit sebelum kelas',
-    importance  : Importance.defaultImportance,
+    description: 'Pengingat jadwal 15 menit sebelum kelas',
+    importance : Importance.defaultImportance,
   );
 
   // ── Init ──────────────────────────────────────────────────
   Future<void> init() async {
-    // Android init
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
-
-    // iOS init
     const iosInit = DarwinInitializationSettings(
-      requestAlertPermission : true,
-      requestBadgePermission : true,
-      requestSoundPermission : true,
+      requestAlertPermission: true,
+      requestBadgePermission: true,
+      requestSoundPermission: true,
     );
-
     const initSettings = InitializationSettings(
       android: androidInit,
       iOS    : iosInit,
@@ -122,7 +118,6 @@ class NotificationService {
       onDidReceiveNotificationResponse: _onTapNotification,
     );
 
-    // Buat channel Android (wajib Android 8+)
     final androidPlugin = _plugin.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
 
@@ -136,26 +131,25 @@ class NotificationService {
     final notification = message.notification;
     if (notification == null) return;
 
-    final data    = message.data;
-    final payload = jsonEncode(data);
-
-    // Pilih channel berdasarkan tipe
-    final typeStr  = data['type'] as String? ?? '';
+    final data      = message.data;
+    final payload   = jsonEncode(data);
+    final typeStr   = data['type'] as String? ?? '';
     final channelId = switch (typeStr) {
-      'presensi_sukses' || 'presensi_gagal' => _channelPresensi.id,
-      'sesi_dibuka'     || 'sesi_tutup_otomatis' || 'kode_hampir_expired'
-                        => _channelSesi.id,
-      _                 => _channelPengingat.id,
+      'presensi_sukses' || 'presensi_gagal'
+          => _channelPresensi.id,
+      'sesi_dibuka' || 'sesi_tutup_otomatis' || 'kode_hampir_expired'
+          => _channelSesi.id,
+      _   => _channelPengingat.id,
     };
 
     final androidDetails = AndroidNotificationDetails(
       channelId,
       _channelNama(channelId),
-      importance          : Importance.high,
-      priority            : Priority.high,
-      color               : AppColors.kNavy,
-      icon                : '@mipmap/ic_launcher',
-      styleInformation    : BigTextStyleInformation(
+      importance      : Importance.high,
+      priority        : Priority.high,
+      color           : AppColors.kNavy,
+      icon            : '@mipmap/ic_launcher',
+      styleInformation: BigTextStyleInformation(
         notification.body ?? '',
         contentTitle: notification.title,
       ),
@@ -167,16 +161,11 @@ class NotificationService {
       presentSound: true,
     );
 
-    final details = NotificationDetails(
-      android: androidDetails,
-      iOS    : iosDetails,
-    );
-
     await _plugin.show(
-      message.hashCode, // ID unik per notif
+      message.hashCode,
       notification.title,
       notification.body,
-      details,
+      NotificationDetails(android: androidDetails, iOS: iosDetails),
       payload: payload,
     );
   }
@@ -191,20 +180,15 @@ class NotificationService {
     } catch (_) {}
   }
 
-  // ── Handle navigasi dari onMessageOpenedApp ───────────────
-  /// Panggil ini dari FcmService.setupForegroundHandler() saat
-  /// FirebaseMessaging.onMessageOpenedApp terpicu.
   void handleMessageOpenedApp(RemoteMessage message) {
     final payload = NotifPayload.fromData(message.data);
     _navigateFromPayload(payload);
   }
 
-  // ── Handle initial message (app dibuka dari notif saat terminated) ──
   Future<void> handleInitialMessage() async {
     final message = await FirebaseMessaging.instance.getInitialMessage();
     if (message == null) return;
     final payload = NotifPayload.fromData(message.data);
-    // Delay singkat agar router sudah siap
     await Future.delayed(const Duration(milliseconds: 800));
     _navigateFromPayload(payload);
   }
@@ -220,27 +204,21 @@ class NotificationService {
     final role = payload.role;
 
     switch (payload.type) {
-      // Mahasiswa: tap notif presensi berhasil/gagal → riwayat
+      // Mahasiswa: presensi berhasil/gagal → riwayat
       case NotifType.presensiSukses:
       case NotifType.presensGagal:
-        if (role == 'mahasiswa') {
-          router.go('/riwayat');
-        }
+        if (role == 'mahasiswa') router.go('/riwayat');
 
-      // Mahasiswa: sesi dibuka → scan (auto-detect akan cek sesi aktif)
+      // Mahasiswa: sesi dibuka → scan (auto-detect cek sesi aktif)
       // CATATAN: notif sesi dibuka TIDAK menyertakan kode sesi (v2.1.0)
       case NotifType.sesiDibuka:
-        if (role == 'mahasiswa') {
-          router.go('/scan');
-        }
+        if (role == 'mahasiswa') router.go('/scan');
 
       // Mahasiswa: kode hampir expired → scan
       case NotifType.kodeHampirExpired:
-        if (role == 'mahasiswa') {
-          router.go('/scan');
-        }
+        if (role == 'mahasiswa') router.go('/scan');
 
-      // Dosen: sesi tutup otomatis → rekap list
+      // Dosen: sesi tutup otomatis → rekap sesi
       case NotifType.sesiTutupOtomatis:
         if (role == 'dosen') {
           if (payload.sesiId != null) {
@@ -250,14 +228,14 @@ class NotificationService {
           }
         }
 
-      // Dosen: pengingat buka sesi → beranda dosen
+      // [Fase 6 UPDATE] Dosen: pengingat buka sesi → tab Jadwal
+      // (sebelumnya menuju /dosen/home — sekarang lebih tepat ke Jadwal
+      //  agar dosen langsung lihat jadwal hari ini dan tap "Buka Sesi")
       case NotifType.pengingatBukaSesi:
-        if (role == 'dosen') {
-          router.go('/dosen/home');
-        }
+        if (role == 'dosen') router.go('/dosen/jadwal');
 
       case NotifType.unknown:
-        break; // tidak navigasi
+        break;
     }
   }
 

@@ -1,12 +1,19 @@
 // lib/router.dart
-// v2.1.0 — Fase 5: tambah navigatorKey dari NotificationService
-// GoRouter v14 menerima navigatorKey sehingga NotificationService
-// bisa navigasi tanpa BuildContext saat tap dari notifikasi.
+// v2.1.0 Fase 6 UPDATE — tambah route /dosen/jadwal
+// GoRouter v14 + navigatorKey dari NotificationService
+//
+// Perubahan dari Fase 5:
+// - /dosen/jadwal → MainDosenScreen(initialIndex: 1)  [BARU]
+// - /dosen/monitor → MainDosenScreen(initialIndex: 2)  [geser dari 1]
+// - /dosen/rekap-list → MainDosenScreen(initialIndex: 3) [geser dari 2]
+// - /dosen/profil → MainDosenScreen(initialIndex: 4) [geser dari 3]
+// - Notification routing: pengingatBukaSesi → /dosen/jadwal
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:presensi_app/providers/auth_provider.dart';
-import 'package:presensi_app/services/notification_service.dart'; // ← FASE 5
+import 'package:presensi_app/services/notification_service.dart';
+import 'package:presensi_app/widgets/bottom_nav_dosen.dart';
 
 // Screens — Mahasiswa
 import 'package:presensi_app/screens/login_screen.dart';
@@ -60,11 +67,7 @@ class _SplashScreen extends StatelessWidget {
 
 GoRouter createRouter(AuthProvider authProvider) {
   return GoRouter(
-    // ── Fase 5: navigatorKey dari NotificationService ─────────
-    // Memungkinkan NotificationService._navigateFromPayload()
-    // memanggil GoRouter.of(context) tanpa BuildContext widget.
-    navigatorKey: NotificationService.navigatorKey,
-
+    navigatorKey     : NotificationService.navigatorKey,
     refreshListenable: authProvider,
     initialLocation  : '/splash',
 
@@ -134,9 +137,9 @@ GoRouter createRouter(AuthProvider authProvider) {
         builder: (context, state) => const LoginScreen(),
       ),
 
-      // ───────────────────────────────────────────────────────
-      // MAHASISWA — Tab navigation shell
-      // ───────────────────────────────────────────────────────
+      // ─────────────────────────────────────────────────────────
+      // MAHASISWA — Tab navigation shell (5 tab)
+      // ─────────────────────────────────────────────────────────
       GoRoute(
         path   : '/home',
         builder: (context, state) => const MainScreen(initialIndex: 0),
@@ -165,7 +168,6 @@ GoRouter createRouter(AuthProvider authProvider) {
       ),
 
       // v2.1.0: /kode-sesi — dipanggil otomatis oleh ScanScreen
-      // extra: SesiDetectResult (utama) | String sesiId (fallback) | null
       GoRoute(
         path   : '/kode-sesi',
         builder: (context, state) {
@@ -194,14 +196,24 @@ GoRouter createRouter(AuthProvider authProvider) {
         builder: (context, state) => const TamuSesiListScreen(),
       ),
 
-      // ───────────────────────────────────────────────────────
-      // DOSEN — Tab navigation shell
-      // ───────────────────────────────────────────────────────
+      // ─────────────────────────────────────────────────────────
+      // DOSEN — Tab navigation shell (5 tab, Fase 6)
+      // Index: 0=Beranda, 1=Jadwal, 2=Monitor, 3=Rekap, 4=Profil
+      // ─────────────────────────────────────────────────────────
       GoRoute(
         path   : '/dosen/home',
         builder: (context, state) =>
-            const MainDosenScreen(initialIndex: 0),
+            const MainDosenScreen(initialIndex: DosenTabIndex.beranda),
       ),
+
+      // [BARU Fase 6.2] Tab Jadwal
+      GoRoute(
+        path   : '/dosen/jadwal',
+        builder: (context, state) =>
+            const MainDosenScreen(initialIndex: DosenTabIndex.jadwal),
+      ),
+
+      // Tab Monitor — sekarang di index 2
       GoRoute(
         path   : '/dosen/monitor',
         builder: (context, state) {
@@ -209,23 +221,27 @@ GoRouter createRouter(AuthProvider authProvider) {
           final sesiId = extra?['sesi_id'] as String?
                       ?? extra?['id']      as String?;
           return MainDosenScreen(
-            initialIndex  : 1,
-            monitorSesiId : sesiId,
+            initialIndex : DosenTabIndex.monitor,
+            monitorSesiId: sesiId,
           );
         },
       ),
+
+      // Tab Rekap — sekarang di index 3
       GoRoute(
         path   : '/dosen/rekap-list',
         builder: (context, state) =>
-            const MainDosenScreen(initialIndex: 2),
+            const MainDosenScreen(initialIndex: DosenTabIndex.rekap),
       ),
+
+      // Tab Profil — sekarang di index 4
       GoRoute(
         path   : '/dosen/profil',
         builder: (context, state) =>
-            const MainDosenScreen(initialIndex: 3),
+            const MainDosenScreen(initialIndex: DosenTabIndex.profil),
       ),
 
-      // Dosen standalone
+      // Dosen standalone — tidak berubah
       GoRoute(
         path   : '/dosen/kode',
         builder: (context, state) {
@@ -248,7 +264,7 @@ GoRouter createRouter(AuthProvider authProvider) {
         },
       ),
 
-      // Redirect rute lama
+      // ── Redirect rute lama ───────────────────────────────────
       GoRoute(
         path    : '/dosen/dashboard',
         redirect: (_, __) => '/dosen/monitor',
