@@ -1,16 +1,19 @@
 // lib/router.dart
-// v2.1.0 — Update route /kode-sesi: terima SesiDetectResult dari ScanScreen
+// v2.1.0 — Fase 5: tambah navigatorKey dari NotificationService
+// GoRouter v14 menerima navigatorKey sehingga NotificationService
+// bisa navigasi tanpa BuildContext saat tap dari notifikasi.
 
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:presensi_app/providers/auth_provider.dart';
+import 'package:presensi_app/services/notification_service.dart'; // ← FASE 5
 
 // Screens — Mahasiswa
 import 'package:presensi_app/screens/login_screen.dart';
 import 'package:presensi_app/screens/register_face_screen.dart';
 import 'package:presensi_app/screens/kode_sesi_screen.dart';
 import 'package:presensi_app/screens/hasil_screen.dart';
-import 'package:presensi_app/screens/tamu_sesi_list_screen.dart'; // Fase 3.3
+import 'package:presensi_app/screens/tamu_sesi_list_screen.dart';
 import 'package:presensi_app/widgets/bottom_nav.dart';
 import 'package:presensi_app/services/sesi_detect_service.dart';
 
@@ -20,7 +23,7 @@ import 'package:presensi_app/screens/dosen/kode_display_screen.dart';
 import 'package:presensi_app/screens/dosen/rekap_screen.dart';
 import 'package:presensi_app/screens/dosen/detail_matakuliah_screen.dart';
 
-// Halaman loading saat cek auth
+// ── Splash Screen ─────────────────────────────────────────────
 class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
@@ -51,8 +54,17 @@ class _SplashScreen extends StatelessWidget {
   }
 }
 
+// ══════════════════════════════════════════════════════════════
+// ROUTER FACTORY
+// ══════════════════════════════════════════════════════════════
+
 GoRouter createRouter(AuthProvider authProvider) {
   return GoRouter(
+    // ── Fase 5: navigatorKey dari NotificationService ─────────
+    // Memungkinkan NotificationService._navigateFromPayload()
+    // memanggil GoRouter.of(context) tanpa BuildContext widget.
+    navigatorKey: NotificationService.navigatorKey,
+
     refreshListenable: authProvider,
     initialLocation  : '/splash',
 
@@ -61,12 +73,12 @@ GoRouter createRouter(AuthProvider authProvider) {
       final user   = authProvider.currentUser;
       final loc    = state.matchedLocation;
 
-      // ── Masih loading → splash ─────────────────────────
+      // Masih loading → splash
       if (status == AuthStatus.unknown) {
         return loc == '/splash' ? null : '/splash';
       }
 
-      // ── Dari splash → redirect sesuai status ───────────
+      // Dari splash → redirect sesuai status & role
       if (loc == '/splash') {
         if (status == AuthStatus.unauthenticated) return '/login';
         if (user?.isDosen == true)      return '/dosen/home';
@@ -76,23 +88,23 @@ GoRouter createRouter(AuthProvider authProvider) {
         return '/home';
       }
 
-      // ── Belum login → paksa ke login ───────────────────
+      // Belum login → paksa ke login
       if (status == AuthStatus.unauthenticated) {
         return loc == '/login' ? null : '/login';
       }
 
-      // ── Mahasiswa belum daftar wajah ───────────────────
+      // Mahasiswa belum daftar wajah
       if (user != null && user.isMahasiswa && !user.isFaceRegistered) {
         if (loc != '/register-face') return '/register-face';
         return null;
       }
 
-      // ── Sudah login & di halaman login ─────────────────
+      // Sudah login & di halaman login
       if (loc == '/login') {
         return user?.isDosen == true ? '/dosen/home' : '/home';
       }
 
-      // ── Dosen tidak boleh akses route mahasiswa ─────────
+      // Dosen tidak boleh akses route mahasiswa
       if (user?.isDosen == true) {
         const mahasiswaRoutes = [
           '/home', '/scan', '/register-face',
@@ -101,7 +113,7 @@ GoRouter createRouter(AuthProvider authProvider) {
         if (mahasiswaRoutes.contains(loc)) return '/dosen/home';
       }
 
-      // ── Mahasiswa tidak boleh akses route dosen ─────────
+      // Mahasiswa tidak boleh akses route dosen
       if (user?.isMahasiswa == true) {
         if (loc.startsWith('/dosen')) return '/home';
       }
@@ -110,21 +122,21 @@ GoRouter createRouter(AuthProvider authProvider) {
     },
 
     routes: [
-      // ── Splash ────────────────────────────────────────────
+      // ── Splash ─────────────────────────────────────────────
       GoRoute(
         path   : '/splash',
         builder: (context, state) => const _SplashScreen(),
       ),
 
-      // ── Auth ──────────────────────────────────────────────
+      // ── Auth ───────────────────────────────────────────────
       GoRoute(
         path   : '/login',
         builder: (context, state) => const LoginScreen(),
       ),
 
-      // ─────────────────────────────────────────────────────
+      // ───────────────────────────────────────────────────────
       // MAHASISWA — Tab navigation shell
-      // ─────────────────────────────────────────────────────
+      // ───────────────────────────────────────────────────────
       GoRoute(
         path   : '/home',
         builder: (context, state) => const MainScreen(initialIndex: 0),
@@ -146,34 +158,24 @@ GoRouter createRouter(AuthProvider authProvider) {
         builder: (context, state) => const MainScreen(initialIndex: 4),
       ),
 
-      // Mahasiswa standalone screens
+      // Mahasiswa standalone
       GoRoute(
         path   : '/register-face',
         builder: (context, state) => const RegisterFaceScreen(),
       ),
 
-      // ── v2.1.0: /kode-sesi — terima SesiDetectResult ─────
-      // Dipanggil otomatis dari ScanScreen saat sesi online terdeteksi.
-      // extra bisa berupa:
-      //   - SesiDetectResult (dari ScanScreen v2.1.0) ← utama
-      //   - String (sesiId lama, backward-compat) ← fallback
-      //   - null (akses langsung, edge case)
+      // v2.1.0: /kode-sesi — dipanggil otomatis oleh ScanScreen
+      // extra: SesiDetectResult (utama) | String sesiId (fallback) | null
       GoRoute(
         path   : '/kode-sesi',
         builder: (context, state) {
           final extra = state.extra;
-
-          // v2.1.0: extra adalah SesiDetectResult
           if (extra is SesiDetectResult) {
             return KodeSesiScreen(sesiAktif: extra);
           }
-
-          // Backward-compat: extra adalah String sesiId
           if (extra is String) {
             return KodeSesiScreen(sesiId: extra);
           }
-
-          // null — akses tanpa konteks
           return const KodeSesiScreen();
         },
       ),
@@ -186,15 +188,15 @@ GoRouter createRouter(AuthProvider authProvider) {
         },
       ),
 
-      // ── v2.1.0: Tamu sesi list ────────────────────────────
+      // v2.1.0: Tamu sesi list
       GoRoute(
         path   : '/mahasiswa/tamu-sesi',
         builder: (context, state) => const TamuSesiListScreen(),
       ),
 
-      // ─────────────────────────────────────────────────────
-      // DOSEN — Tab navigation shell (4 tab)
-      // ─────────────────────────────────────────────────────
+      // ───────────────────────────────────────────────────────
+      // DOSEN — Tab navigation shell
+      // ───────────────────────────────────────────────────────
       GoRoute(
         path   : '/dosen/home',
         builder: (context, state) =>
@@ -203,9 +205,9 @@ GoRouter createRouter(AuthProvider authProvider) {
       GoRoute(
         path   : '/dosen/monitor',
         builder: (context, state) {
-          final extra   = state.extra as Map<String, dynamic>?;
-          final sesiId  = extra?['sesi_id'] as String?
-                       ?? extra?['id']      as String?;
+          final extra  = state.extra as Map<String, dynamic>?;
+          final sesiId = extra?['sesi_id'] as String?
+                      ?? extra?['id']      as String?;
           return MainDosenScreen(
             initialIndex  : 1,
             monitorSesiId : sesiId,
@@ -223,7 +225,7 @@ GoRouter createRouter(AuthProvider authProvider) {
             const MainDosenScreen(initialIndex: 3),
       ),
 
-      // ── Dosen standalone screens ─────────────────────────
+      // Dosen standalone
       GoRoute(
         path   : '/dosen/kode',
         builder: (context, state) {
@@ -246,10 +248,10 @@ GoRouter createRouter(AuthProvider authProvider) {
         },
       ),
 
-      // ── Rute lama dosen (redirect) ───────────────────────
+      // Redirect rute lama
       GoRoute(
         path    : '/dosen/dashboard',
-        redirect: (context, state) => '/dosen/monitor',
+        redirect: (_, __) => '/dosen/monitor',
       ),
       GoRoute(
         path    : '/dosen/buka-sesi',

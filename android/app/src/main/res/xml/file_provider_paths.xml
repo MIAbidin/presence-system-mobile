@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    android/app/src/main/res/xml/file_provider_paths.xml
+
+    Mendefinisikan direktori yang boleh dishare via FileProvider.
+    Digunakan oleh share_plus (Share.shareXFiles) dan open_filex.
+
+    Direktori yang dicover:
+      - cache-path    : getTemporaryDirectory() — dipakai untuk file
+                        ekspor Excel sementara sebelum dishare
+      - external-path : getExternalStorageDirectory() — Android ≤ 9
+      - files-path    : getApplicationDocumentsDirectory() — fallback
+-->
+<paths>
+    <!-- Temporary directory — path_provider: getTemporaryDirectory()
+         Ini adalah direktori utama untuk ekspor Excel di Fase 6/8.
+         File dibuat di sini lalu dibuka via share_plus / open_filex. -->
+    <cache-path
+        name="flutter_cache"
+        path="."/>
+
+    <!-- App internal files — path_provider: getApplicationDocumentsDirectory() -->
+    <files-path
+        name="flutter_files"
+        path="."/>
+
+    <!-- External storage root — untuk Android ≤ 9 (API 28) -->
+    <external-path
+        name="flutter_external"
+        path="."/>
+
+    <!-- External cache — beberapa versi share_plus menulis ke sini -->
+    <external-cache-path
+        name="flutter_external_cache"
+        path="."/>
+</paths>

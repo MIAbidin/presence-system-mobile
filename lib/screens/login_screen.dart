@@ -33,8 +33,6 @@ class _LoginScreenState extends State<LoginScreen> {
       _passController.text,
     );
 
-    // On failure show error snackbar
-    // On success GoRouter redirect guard handles navigation automatically
     if (!success && mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -122,15 +120,26 @@ class _LoginScreenState extends State<LoginScreen> {
                         ),
                         const SizedBox(height: 24),
 
-                        // NIM / NIDN field
+                        // ── NIM / NIDN field ──────────────────
                         TextFormField(
-                          controller   : _nimController,
-                          keyboardType : TextInputType.number,
-                          decoration   : InputDecoration(
+                          controller        : _nimController,
+                          // FIX: gunakan text agar huruf & angka bisa diketik
+                          keyboardType      : TextInputType.text,
+                          // Nonaktifkan autocorrect — NIM bukan kata biasa
+                          autocorrect       : false,
+                          enableSuggestions : false,
+                          // Kapital otomatis di awal (misal "H071211001")
+                          textCapitalization: TextCapitalization.characters,
+                          decoration: InputDecoration(
                             labelText  : 'NIM / NIDN',
-                            hintText   : 'Enter your NIM or NIDN',
+                            hintText   : 'Contoh: H071211001 atau 0012038901',
                             prefixIcon : const Icon(Icons.badge_outlined),
-                            border     : OutlineInputBorder(
+                            helperText : 'Masukkan NIM (mahasiswa) atau NIDN (dosen/admin)',
+                            helperStyle: TextStyle(
+                              color   : Colors.grey.shade500,
+                              fontSize: 11,
+                            ),
+                            border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                             focusedBorder: OutlineInputBorder(
@@ -143,14 +152,17 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           validator: (v) {
                             if (v == null || v.trim().isEmpty) {
-                              return 'NIM/NIDN is required';
+                              return 'NIM/NIDN tidak boleh kosong';
+                            }
+                            if (v.trim().length < 5) {
+                              return 'NIM/NIDN terlalu pendek';
                             }
                             return null;
                           },
                         ),
                         const SizedBox(height: 16),
 
-                        // Password field
+                        // ── Password field ────────────────────
                         TextFormField(
                           controller : _passController,
                           obscureText: _obscurePass,
@@ -180,17 +192,17 @@ class _LoginScreenState extends State<LoginScreen> {
                           ),
                           validator: (v) {
                             if (v == null || v.isEmpty) {
-                              return 'Password is required';
+                              return 'Password tidak boleh kosong';
                             }
                             if (v.length < 6) {
-                              return 'Password must be at least 6 characters';
+                              return 'Password minimal 6 karakter';
                             }
                             return null;
                           },
                         ),
                         const SizedBox(height: 28),
 
-                        // Login button
+                        // ── Login button ──────────────────────
                         SizedBox(
                           height: 52,
                           child : ElevatedButton(
@@ -228,7 +240,7 @@ class _LoginScreenState extends State<LoginScreen> {
 
                 const SizedBox(height: 24),
                 Text(
-                  'Forgot password? Contact campus admin',
+                  'Lupa password? Hubungi admin kampus',
                   style: TextStyle(
                     color   : Colors.white.withOpacity(0.6),
                     fontSize: 13,

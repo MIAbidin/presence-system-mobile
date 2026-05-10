@@ -567,7 +567,7 @@ class _ScanScreenState extends State<ScanScreen>
         // ── v2.1.0: Overlay oval elegan dengan gradient border UMS ──
         CustomPaint(
           size   : Size.infinite,
-          painter: _UMSOvalOverlayPainter(faceDetected: _faceDetected),
+          painter: UMSOvalOverlayPainter(faceDetected: _faceDetected),
         ),
 
         // Badge deteksi wajah
