@@ -1,19 +1,28 @@
 // lib/screens/dosen/detail_matakuliah_screen.dart
-// Fase 5 — Detail Matakuliah Dosen
-// 3 tab: Mahasiswa | Jadwal | Riwayat
+// FASE 7 UPDATE:
+// - 7.1: Tab Kelas BARU (index 3) — list kelas A/B/C + mahasiswa per kelas
+//         via GET /kelas/mahasiswa/{kelas_id}
+// - 7.2: Field MODE (Offline/Online) WAJIB di form jadwal pengganti
+//         + validasi client-side jam selesai > jam mulai
+//         + indikator pertemuan yang sudah punya jadwal pengganti
+//
+// Total tab: 4 (Mahasiswa | Jadwal | Riwayat | Kelas)
 
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:presensi_app/core/api_client.dart';
+import 'package:presensi_app/widgets/kelas_badge.dart';
+import 'package:presensi_app/widgets/mode_badge.dart';
 
 // ─── Konstanta warna ──────────────────────────────────────────
-const _kNavy    = Color(0xFF1E3A5F);
-const _kAccent  = Color(0xFF00BFA5);
+const _kNavy    = Color(0xFF003366); // UMS Navy (tema baru)
+const _kAccent  = Color(0xFF2D6A4F); // UMS Green
+const _kGold    = Color(0xFFFDB813); // UMS Gold
 const _kWarning = Color(0xFFFFA726);
 const _kDanger  = Color(0xFFEF5350);
 const _kPurple  = Color(0xFF7C3AED);
-const _kBgLight = Color(0xFFF5F7FA);
+const _kBgLight = Color(0xFFF8F9FA); // UMS BgLight
 
 // ══════════════════════════════════════════════════════════════
 // MODEL
@@ -37,6 +46,9 @@ class MatakuliahDetail {
   final List<JadwalPenggantiItem> jadwalPengganti;
   final List<RiwayatSesiItem>     riwayatSesi;
 
+  // [BARU 7.1] List kelas (A/B/C) yang ada di MK ini
+  final List<KelasItem>           kelasList;
+
   const MatakuliahDetail({
     required this.id,
     required this.kode,
@@ -54,6 +66,7 @@ class MatakuliahDetail {
     required this.mahasiswa,
     required this.jadwalPengganti,
     required this.riwayatSesi,
+    this.kelasList = const [],
   });
 
   factory MatakuliahDetail.fromJson(Map<String, dynamic> j) =>
@@ -79,6 +92,10 @@ class MatakuliahDetail {
             .toList(),
         riwayatSesi     : ((j['riwayat_sesi']    as List<dynamic>?) ?? [])
             .map((e) => RiwayatSesiItem.fromJson(e as Map<String, dynamic>))
+            .toList(),
+        // [BARU 7.1] parse kelas_list dari response jika ada
+        kelasList       : ((j['kelas_list']      as List<dynamic>?) ?? [])
+            .map((e) => KelasItem.fromJson(e as Map<String, dynamic>))
             .toList(),
       );
 }
@@ -114,6 +131,98 @@ class MahasiswaItem {
       : '?';
 }
 
+// ── [BARU 7.1] Model Kelas ────────────────────────────────────
+
+class KelasItem {
+  final String  id;
+  final String  kodeKelas;
+  final String? dosenNama;
+  final String? ruanganNama;
+  final String? hari;
+  final String? jamMulai;
+  final String? jamSelesai;
+  final int?    slotMulai;
+  final int?    slotSelesai;
+  final bool    izinTamu;
+  final int     enrolled;
+
+  const KelasItem({
+    required this.id,
+    required this.kodeKelas,
+    this.dosenNama,
+    this.ruanganNama,
+    this.hari,
+    this.jamMulai,
+    this.jamSelesai,
+    this.slotMulai,
+    this.slotSelesai,
+    this.izinTamu = false,
+    this.enrolled = 0,
+  });
+
+  factory KelasItem.fromJson(Map<String, dynamic> j) => KelasItem(
+    id          : j['id']           as String,
+    kodeKelas   : j['kode_kelas']   as String? ?? '',
+    dosenNama   : j['dosen_nama']   as String?,
+    ruanganNama : j['ruangan_nama'] as String?,
+    hari        : j['hari']         as String?,
+    jamMulai    : j['jam_mulai']    as String?,
+    jamSelesai  : j['jam_selesai']  as String?,
+    slotMulai   : j['slot_mulai']   as int?,
+    slotSelesai : j['slot_selesai'] as int?,
+    izinTamu    : j['izin_tamu']    as bool? ?? false,
+    enrolled    : j['enrolled']     as int?  ?? j['jumlah_mahasiswa'] as int? ?? 0,
+  );
+
+  String get labelJam {
+    if (jamMulai == null && jamSelesai == null) return '-';
+    return '${jamMulai ?? "?"} – ${jamSelesai ?? "?"}';
+  }
+
+  String get labelSlot {
+    if (slotMulai == null) return '';
+    final selesai = slotSelesai ?? slotMulai;
+    return 'Slot $slotMulai–$selesai';
+  }
+}
+
+// ── [BARU 7.1] Model Mahasiswa dalam Kelas ───────────────────
+
+class MahasiswaKelasItem {
+  final String  mahasiswaId;
+  final String  nim;
+  final String  namaLengkap;
+  final String  programStudi;
+  final bool    isTamu;
+  final String? kelasAsal;
+
+  const MahasiswaKelasItem({
+    required this.mahasiswaId,
+    required this.nim,
+    required this.namaLengkap,
+    required this.programStudi,
+    required this.isTamu,
+    this.kelasAsal,
+  });
+
+  factory MahasiswaKelasItem.fromJson(Map<String, dynamic> j) =>
+      MahasiswaKelasItem(
+        mahasiswaId : j['mahasiswa_id']  as String,
+        nim         : j['nim']           as String,
+        namaLengkap : j['nama_lengkap']  as String,
+        programStudi: j['program_studi'] as String? ?? '',
+        isTamu      : j['is_tamu']       as bool?   ?? false,
+        kelasAsal   : j['kelas_asal']    as String?,
+      );
+
+  String get inisial {
+    final parts = namaLengkap.trim().split(' ');
+    if (parts.length >= 2) return '${parts[0][0]}${parts[1][0]}'.toUpperCase();
+    if (namaLengkap.isNotEmpty) return namaLengkap[0].toUpperCase();
+    return '?';
+  }
+}
+
 class JadwalPenggantiItem {
   final String  id;
   final int     pertemuanKe;
@@ -122,6 +231,9 @@ class JadwalPenggantiItem {
   final String? ruanganBaru;
   final String? keterangan;
 
+  // [BARU 7.2] Field mode
+  final String? mode; // 'offline' | 'online' | null
+
   const JadwalPenggantiItem({
     required this.id,
     required this.pertemuanKe,
@@ -129,6 +241,7 @@ class JadwalPenggantiItem {
     this.jamSelesaiBaru,
     this.ruanganBaru,
     this.keterangan,
+    this.mode,
   });
 
   factory JadwalPenggantiItem.fromJson(Map<String, dynamic> j) =>
@@ -139,6 +252,7 @@ class JadwalPenggantiItem {
         jamSelesaiBaru: j['jam_selesai_baru'] as String?,
         ruanganBaru   : j['ruangan_baru']     as String?,
         keterangan    : j['keterangan']       as String?,
+        mode          : j['mode']             as String?,
       );
 }
 
@@ -201,6 +315,8 @@ class DetailMatakuliahScreen extends StatefulWidget {
 
 class _DetailMatakuliahScreenState extends State<DetailMatakuliahScreen>
     with SingleTickerProviderStateMixin {
+
+  // [7.1] TabController kini 4 tab: Mahasiswa | Jadwal | Riwayat | Kelas
   late TabController _tabController;
 
   MatakuliahDetail? _data;
@@ -210,7 +326,7 @@ class _DetailMatakuliahScreenState extends State<DetailMatakuliahScreen>
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _fetchDetail();
   }
 
@@ -282,7 +398,7 @@ class _DetailMatakuliahScreenState extends State<DetailMatakuliahScreen>
                 gradient: LinearGradient(
                   begin : Alignment.topLeft,
                   end   : Alignment.bottomRight,
-                  colors: [_kNavy, Color(0xFF2A5298)],
+                  colors: [_kNavy, Color(0xFF1A4A80)],
                 ),
               ),
               child: SafeArea(
@@ -311,7 +427,6 @@ class _DetailMatakuliahScreenState extends State<DetailMatakuliahScreen>
                             style: const TextStyle(
                               color: Colors.white70, fontSize: 12)),
                           const Spacer(),
-                          // Badge izin tamu
                           _IzinTamuBadge(izinTamu: d.izinTamu),
                         ],
                       ),
@@ -352,18 +467,44 @@ class _DetailMatakuliahScreenState extends State<DetailMatakuliahScreen>
               ),
             ),
           ),
+          // [7.1] 4 tab: tambah 'Kelas'
           bottom: TabBar(
-            controller        : _tabController,
-            indicatorColor    : Colors.white,
-            indicatorWeight   : 3,
-            labelColor        : Colors.white,
+            controller          : _tabController,
+            indicatorColor      : _kGold,       // Gold UMS untuk indicator
+            indicatorWeight     : 3,
+            labelColor          : Colors.white,
             unselectedLabelColor: Colors.white54,
-            labelStyle        : const TextStyle(
-              fontWeight: FontWeight.bold, fontSize: 14),
+            labelStyle          : const TextStyle(
+              fontWeight: FontWeight.bold, fontSize: 13),
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
             tabs: [
               Tab(text: 'Mahasiswa (${d.totalAsli + d.totalTamu})'),
               const Tab(text: 'Jadwal'),
               Tab(text: 'Riwayat (${d.riwayatSesi.length})'),
+              // [BARU 7.1]
+              Tab(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text('Kelas'),
+                    if (d.kelasList.isNotEmpty) ...[
+                      const SizedBox(width: 6),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 6, vertical: 2),
+                        decoration: BoxDecoration(
+                          color       : _kGold.withOpacity(0.3),
+                          borderRadius: BorderRadius.circular(10)),
+                        child: Text('${d.kelasList.length}',
+                          style: const TextStyle(
+                            fontSize: 10, fontWeight: FontWeight.bold,
+                            color: Colors.white)),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ],
           ),
         ),
@@ -372,17 +513,24 @@ class _DetailMatakuliahScreenState extends State<DetailMatakuliahScreen>
         controller: _tabController,
         children  : [
           _MahasiswaTab(
-            matakuliahId: widget.matakuliahId,
+            matakuliahId : widget.matakuliahId,
             mahasiswaList: d.mahasiswa,
-            izinTamu    : d.izinTamu,
-            onRefresh   : _fetchDetail,
+            izinTamu     : d.izinTamu,
+            onRefresh    : _fetchDetail,
           ),
+          // [7.2] JadwalTab kini terima jadwalPengganti untuk indikator
           _JadwalTab(
             matakuliahId   : widget.matakuliahId,
             data           : d,
             onRefresh      : _fetchDetail,
           ),
           _RiwayatTab(riwayatSesi: d.riwayatSesi),
+          // [BARU 7.1] Tab Kelas
+          _KelasTab(
+            matakuliahId: widget.matakuliahId,
+            kelasList   : d.kelasList,
+            onRefresh   : _fetchDetail,
+          ),
         ],
       ),
     );
@@ -390,7 +538,7 @@ class _DetailMatakuliahScreenState extends State<DetailMatakuliahScreen>
 }
 
 // ══════════════════════════════════════════════════════════════
-// TAB 1 — MAHASISWA
+// TAB 1 — MAHASISWA (tidak berubah signifikan)
 // ══════════════════════════════════════════════════════════════
 
 class _MahasiswaTab extends StatefulWidget {
@@ -416,7 +564,7 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
   bool get wantKeepAlive => true;
 
   final _searchCtrl = TextEditingController();
-  String _filterChip = 'semua'; // semua | asli | tamu
+  String _filterChip = 'semua';
   bool   _izinTamu   = false;
   bool   _isTogglingTamu = false;
 
@@ -456,7 +604,7 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
       if (response.statusCode == 200) {
         setState(() => _izinTamu = value);
         _showSnack(value
-          ? 'Izin tamu diaktifkan — mahasiswa kelas lain bisa langsung presensi'
+          ? 'Izin tamu diaktifkan'
           : 'Izin tamu dinonaktifkan');
         widget.onRefresh();
       } else {
@@ -499,7 +647,6 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
     if (confirm != true) return;
 
     try {
-      // FIX: pakai DELETE sesuai endpoint backend
       final response = await ApiClient().delete(
         '/dosen/matakuliah/${widget.matakuliahId}/tamu/${mhs.mahasiswaId}',
       );
@@ -539,10 +686,10 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
                 style: TextStyle(color: Colors.grey.shade600, fontSize: 13)),
               const SizedBox(height: 14),
               TextField(
-                controller : nimCtrl,
+                controller  : nimCtrl,
                 keyboardType: TextInputType.number,
-                autofocus  : true,
-                decoration : InputDecoration(
+                autofocus   : true,
+                decoration  : InputDecoration(
                   labelText: 'NIM Mahasiswa',
                   hintText : 'Contoh: 2021001003',
                   prefixIcon: const Icon(Icons.badge_outlined),
@@ -616,19 +763,17 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
   @override
   Widget build(BuildContext context) {
     super.build(context);
-    final filtered = _filtered;
+    final filtered  = _filtered;
     final totalAsli = widget.mahasiswaList.where((m) => !m.isTamu).length;
     final totalTamu = widget.mahasiswaList.where((m) => m.isTamu).length;
 
     return Column(
       children: [
-        // ── Panel izin tamu + tambah ──────────────────────
         Container(
           color  : Colors.white,
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
           child  : Column(
             children: [
-              // Toggle izin tamu
               Row(
                 children: [
                   Expanded(
@@ -662,7 +807,6 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
                 ],
               ),
               const SizedBox(height: 10),
-              // Tombol tambah tamu
               SizedBox(
                 width : double.infinity,
                 child : OutlinedButton.icon(
@@ -682,14 +826,11 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
             ],
           ),
         ),
-
-        // ── Search + filter ───────────────────────────────
         Container(
           color  : Colors.white,
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child  : Column(
             children: [
-              // Search bar
               TextField(
                 controller : _searchCtrl,
                 decoration : InputDecoration(
@@ -709,7 +850,6 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
                 ),
               ),
               const SizedBox(height: 10),
-              // Filter chips
               Row(
                 children: [
                   _FilterChip(
@@ -738,8 +878,6 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
           ),
         ),
         const Divider(height: 1),
-
-        // ── List mahasiswa ────────────────────────────────
         Expanded(
           child: filtered.isEmpty
               ? _EmptyState(
@@ -753,8 +891,8 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
                   itemCount      : filtered.length,
                   separatorBuilder: (_, __) => const SizedBox(height: 8),
                   itemBuilder    : (ctx, i) => _MahasiswaCard(
-                    mhs    : filtered[i],
-                    onHapusTamu: filtered[i].isTamu
+                    mhs         : filtered[i],
+                    onHapusTamu : filtered[i].isTamu
                         ? () => _hapusTamu(filtered[i])
                         : null,
                   ),
@@ -764,8 +902,6 @@ class _MahasiswaTabState extends State<_MahasiswaTab>
     );
   }
 }
-
-// ─── Card mahasiswa ───────────────────────────────────────────
 
 class _MahasiswaCard extends StatelessWidget {
   final MahasiswaItem mhs;
@@ -789,7 +925,6 @@ class _MahasiswaCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Avatar
           CircleAvatar(
             radius         : 22,
             backgroundColor: mhs.isTamu
@@ -803,7 +938,6 @@ class _MahasiswaCard extends StatelessWidget {
                 fontSize  : 14)),
           ),
           const SizedBox(width: 12),
-          // Info
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -820,19 +954,7 @@ class _MahasiswaCard extends StatelessWidget {
                     ),
                     if (mhs.isTamu) ...[
                       const SizedBox(width: 6),
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 2),
-                        decoration: BoxDecoration(
-                          color: Colors.orange.shade50,
-                          borderRadius: BorderRadius.circular(4),
-                          border: Border.all(color: Colors.orange.shade200)),
-                        child: Text('Tamu',
-                          style: TextStyle(
-                            color    : Colors.orange.shade700,
-                            fontSize : 10,
-                            fontWeight: FontWeight.bold)),
-                      ),
+                      const TamuBadge(),
                     ],
                   ],
                 ),
@@ -850,7 +972,6 @@ class _MahasiswaCard extends StatelessWidget {
               ],
             ),
           ),
-          // Menu hapus tamu
           if (onHapusTamu != null)
             PopupMenuButton<String>(
               onSelected: (v) {
@@ -880,7 +1001,7 @@ class _MahasiswaCard extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════
-// TAB 2 — JADWAL
+// TAB 2 — JADWAL (7.2: tambah field mode + validasi jam)
 // ══════════════════════════════════════════════════════════════
 
 class _JadwalTab extends StatefulWidget {
@@ -903,13 +1024,23 @@ class _JadwalTabState extends State<_JadwalTab>
   @override
   bool get wantKeepAlive => true;
 
-  // Form state
   int?    _selectedPertemuan;
   String? _jamMulaiBaru;
   String? _jamSelesaiBaru;
+
+  // [BARU 7.2] Field mode jadwal pengganti
+  String? _modeBaru; // 'offline' | 'online' | null (tidak diubah)
+
   final _ruanganCtrl    = TextEditingController();
   final _keteranganCtrl = TextEditingController();
   bool    _isSaving     = false;
+
+  // [BARU 7.2] Set pertemuan yang sudah punya jadwal pengganti
+  Set<int> get _pertemuanDenganPengganti {
+    return widget.data.jadwalPengganti
+        .map((jp) => jp.pertemuanKe)
+        .toSet();
+  }
 
   @override
   void dispose() {
@@ -918,8 +1049,31 @@ class _JadwalTabState extends State<_JadwalTab>
     super.dispose();
   }
 
+  // [7.2] Parse jam "HH:MM" → TimeOfDay untuk perbandingan
+  TimeOfDay? _parseJam(String? jam) {
+    if (jam == null) return null;
+    final parts = jam.split(':');
+    if (parts.length != 2) return null;
+    final h = int.tryParse(parts[0]);
+    final m = int.tryParse(parts[1]);
+    if (h == null || m == null) return null;
+    return TimeOfDay(hour: h, minute: m);
+  }
+
+  // [7.2] Konversi TimeOfDay → menit untuk perbandingan
+  int _toMenit(TimeOfDay t) => t.hour * 60 + t.minute;
+
+  // [7.2] Validasi jam selesai > jam mulai
+  bool _jamValid() {
+    if (_jamMulaiBaru == null || _jamSelesaiBaru == null) return true;
+    final mulai   = _parseJam(_jamMulaiBaru);
+    final selesai = _parseJam(_jamSelesaiBaru);
+    if (mulai == null || selesai == null) return true;
+    return _toMenit(selesai) > _toMenit(mulai);
+  }
+
   Future<void> _pickTime(bool isMulai) async {
-    final now = TimeOfDay.now();
+    final now    = TimeOfDay.now();
     final picked = await showTimePicker(
       context     : context,
       initialTime : now,
@@ -946,9 +1100,18 @@ class _JadwalTabState extends State<_JadwalTab>
       _showSnack('Pilih nomor pertemuan terlebih dahulu', isError: true);
       return;
     }
+
+    // [7.2] Validasi semua field minimal satu diisi
     if (_jamMulaiBaru == null && _jamSelesaiBaru == null &&
-        _ruanganCtrl.text.isEmpty && _keteranganCtrl.text.isEmpty) {
+        _ruanganCtrl.text.isEmpty && _keteranganCtrl.text.isEmpty &&
+        _modeBaru == null) {
       _showSnack('Minimal satu perubahan harus diisi', isError: true);
+      return;
+    }
+
+    // [7.2] Validasi jam selesai > jam mulai
+    if (!_jamValid()) {
+      _showSnack('Jam selesai harus lebih besar dari jam mulai', isError: true);
       return;
     }
 
@@ -962,6 +1125,8 @@ class _JadwalTabState extends State<_JadwalTab>
           'ruangan_baru': _ruanganCtrl.text.trim(),
         if (_keteranganCtrl.text.isNotEmpty)
           'keterangan'  : _keteranganCtrl.text.trim(),
+        // [BARU 7.2] Sertakan mode jika dipilih
+        if (_modeBaru != null) 'mode': _modeBaru,
       };
 
       final response = await ApiClient().post(
@@ -971,11 +1136,11 @@ class _JadwalTabState extends State<_JadwalTab>
 
       if (response.statusCode == 201) {
         _showSnack('Jadwal pengganti pertemuan $_selectedPertemuan berhasil disimpan');
-        // Reset form
         setState(() {
           _selectedPertemuan = null;
           _jamMulaiBaru      = null;
           _jamSelesaiBaru    = null;
+          _modeBaru          = null; // [7.2] reset mode
         });
         _ruanganCtrl.clear();
         _keteranganCtrl.clear();
@@ -1020,7 +1185,6 @@ class _JadwalTabState extends State<_JadwalTab>
     if (confirm != true) return;
 
     try {
-      // FIX: pakai DELETE sesuai endpoint backend
       final response = await ApiClient().delete(
         '/dosen/matakuliah/${widget.matakuliahId}/jadwal-pengganti/${jp.pertemuanKe}',
       );
@@ -1051,13 +1215,14 @@ class _JadwalTabState extends State<_JadwalTab>
   Widget build(BuildContext context) {
     super.build(context);
     final d = widget.data;
+    final sudahAdaPengganti = _pertemuanDenganPengganti;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          // ── Jadwal reguler (read-only) ────────────────────
+          // ── Jadwal reguler ──────────────────────────────────
           _SectionCard(
             title: '📅 Jadwal Reguler',
             child: Column(
@@ -1083,7 +1248,7 @@ class _JadwalTabState extends State<_JadwalTab>
           ),
           const SizedBox(height: 16),
 
-          // ── Form jadwal pengganti ─────────────────────────
+          // ── Form jadwal pengganti ────────────────────────────
           _SectionCard(
             title: '🔄 Tambah Jadwal Pengganti',
             child: Column(
@@ -1096,7 +1261,8 @@ class _JadwalTabState extends State<_JadwalTab>
                     color: Colors.grey.shade600, fontSize: 13)),
                 const SizedBox(height: 16),
 
-                // Dropdown pertemuan ke
+                // [7.2] Dropdown pertemuan — tampilkan indikator
+                // untuk pertemuan yang sudah punya jadwal pengganti
                 DropdownButtonFormField<int>(
                   value     : _selectedPertemuan,
                   decoration: InputDecoration(
@@ -1111,11 +1277,35 @@ class _JadwalTabState extends State<_JadwalTab>
                       borderSide  : BorderSide(
                         color: Colors.grey.shade300)),
                   ),
-                  items: List.generate(16, (i) => i + 1)
-                      .map((n) => DropdownMenuItem(
-                        value: n,
-                        child: Text('Pertemuan ke-$n')))
-                      .toList(),
+                  items: List.generate(16, (i) => i + 1).map((n) {
+                    final sudahAda = sudahAdaPengganti.contains(n);
+                    return DropdownMenuItem(
+                      value: n,
+                      child: Row(
+                        children: [
+                          Text('Pertemuan ke-$n'),
+                          // [7.2] Indikator pertemuan yang sudah ada pengganti
+                          if (sudahAda) ...[
+                            const SizedBox(width: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: _kGold.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(
+                                  color: _kGold.withOpacity(0.5), width: 1)),
+                              child: const Text('Ada Pengganti',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  color: Color(0xFFB8860B),
+                                  fontWeight: FontWeight.bold)),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                  }).toList(),
                   onChanged: (v) => setState(() => _selectedPertemuan = v),
                 ),
                 const SizedBox(height: 12),
@@ -1125,23 +1315,46 @@ class _JadwalTabState extends State<_JadwalTab>
                   children: [
                     Expanded(
                       child: _TimePickerField(
-                        label   : 'Jam Mulai Baru',
-                        value   : _jamMulaiBaru,
+                        label     : 'Jam Mulai Baru',
+                        value     : _jamMulaiBaru,
                         onPickTime: () => _pickTime(true),
-                        onClear : () => setState(() => _jamMulaiBaru = null),
+                        onClear   : () => setState(() => _jamMulaiBaru = null),
                       ),
                     ),
                     const SizedBox(width: 10),
                     Expanded(
                       child: _TimePickerField(
-                        label   : 'Jam Selesai Baru',
-                        value   : _jamSelesaiBaru,
+                        label     : 'Jam Selesai Baru',
+                        value     : _jamSelesaiBaru,
                         onPickTime: () => _pickTime(false),
-                        onClear : () => setState(() => _jamSelesaiBaru = null),
+                        onClear   : () => setState(() => _jamSelesaiBaru = null),
+                        // [7.2] Highlight merah jika jam tidak valid
+                        isError   : _jamMulaiBaru != null &&
+                                    _jamSelesaiBaru != null &&
+                                    !_jamValid(),
                       ),
                     ),
                   ],
                 ),
+
+                // [7.2] Pesan error jam
+                if (_jamMulaiBaru != null &&
+                    _jamSelesaiBaru != null &&
+                    !_jamValid())
+                  Padding(
+                    padding: const EdgeInsets.only(top: 6),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.error_outline,
+                          size: 14, color: _kDanger),
+                        const SizedBox(width: 4),
+                        Text(
+                          'Jam selesai harus lebih besar dari jam mulai',
+                          style: TextStyle(
+                            color: _kDanger, fontSize: 11)),
+                      ],
+                    ),
+                  ),
                 const SizedBox(height: 12),
 
                 // Ruangan baru
@@ -1161,6 +1374,101 @@ class _JadwalTabState extends State<_JadwalTab>
                       borderSide  : BorderSide(
                         color: Colors.grey.shade300)),
                   ),
+                ),
+                const SizedBox(height: 12),
+
+                // [BARU 7.2] ── Dropdown Mode ──────────────────
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Mode Pelaksanaan Baru',
+                      style: TextStyle(
+                        color    : Colors.grey.shade600,
+                        fontSize : 13,
+                        fontWeight: FontWeight.w500),
+                    ),
+                    const SizedBox(height: 6),
+                    Container(
+                      decoration: BoxDecoration(
+                        color       : _kBgLight,
+                        borderRadius: BorderRadius.circular(10),
+                        border      : Border.all(
+                          color: Colors.grey.shade300, width: 1),
+                      ),
+                      child: Column(
+                        children: [
+                          // Pilihan: Tidak diubah
+                          _ModeRadioTile(
+                            value   : null,
+                            groupVal: _modeBaru,
+                            label   : 'Tidak diubah (ikut reguler)',
+                            icon    : Icons.sync_rounded,
+                            color   : Colors.grey.shade600,
+                            onChanged: (v) => setState(() => _modeBaru = v),
+                          ),
+                          const Divider(height: 1),
+                          // Pilihan: Tatap Muka (Offline)
+                          _ModeRadioTile(
+                            value   : 'offline',
+                            groupVal: _modeBaru,
+                            label   : 'Tatap Muka (Offline)',
+                            icon    : Icons.location_on_outlined,
+                            color   : _kAccent,
+                            onChanged: (v) => setState(() => _modeBaru = v),
+                          ),
+                          const Divider(height: 1),
+                          // Pilihan: Online
+                          _ModeRadioTile(
+                            value   : 'online',
+                            groupVal: _modeBaru,
+                            label   : 'Online',
+                            icon    : Icons.laptop_outlined,
+                            color   : _kNavy,
+                            onChanged: (v) => setState(() => _modeBaru = v),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Info dampak ke presensi
+                    if (_modeBaru != null)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 8),
+                        child: Container(
+                          padding: const EdgeInsets.all(10),
+                          decoration: BoxDecoration(
+                            color: (_modeBaru == 'online'
+                                    ? _kNavy : _kAccent).withOpacity(0.07),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: (_modeBaru == 'online'
+                                  ? _kNavy : _kAccent).withOpacity(0.2))),
+                          child: Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(Icons.info_outline,
+                                size: 14,
+                                color: _modeBaru == 'online'
+                                    ? _kNavy : _kAccent),
+                              const SizedBox(width: 6),
+                              Expanded(
+                                child: Text(
+                                  _modeBaru == 'online'
+                                      ? 'Mahasiswa akan diminta memasukkan '
+                                        'kode sesi saat presensi pertemuan ini.'
+                                      : 'Mahasiswa akan divalidasi GPS saat '
+                                        'presensi pertemuan ini.',
+                                  style: TextStyle(
+                                    color: _modeBaru == 'online'
+                                        ? _kNavy : _kAccent,
+                                    fontSize: 11),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
                 const SizedBox(height: 12),
 
@@ -1185,7 +1493,6 @@ class _JadwalTabState extends State<_JadwalTab>
                 ),
                 const SizedBox(height: 16),
 
-                // Tombol simpan
                 SizedBox(
                   height: 48,
                   child : ElevatedButton.icon(
@@ -1211,7 +1518,7 @@ class _JadwalTabState extends State<_JadwalTab>
             ),
           ),
 
-          // ── List jadwal pengganti yang sudah ada ──────────
+          // ── List jadwal pengganti tersimpan ──────────────────
           if (d.jadwalPengganti.isNotEmpty) ...[
             const SizedBox(height: 16),
             _SectionCard(
@@ -1234,23 +1541,81 @@ class _JadwalTabState extends State<_JadwalTab>
   }
 }
 
-// ─── Time picker field ────────────────────────────────────────
+// ── [BARU 7.2] Radio tile untuk pilihan mode ──────────────────
+
+class _ModeRadioTile extends StatelessWidget {
+  final String?  value;
+  final String?  groupVal;
+  final String   label;
+  final IconData icon;
+  final Color    color;
+  final void Function(String?) onChanged;
+
+  const _ModeRadioTile({
+    required this.value,
+    required this.groupVal,
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onChanged,
+  });
+
+  bool get _selected => value == groupVal;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap       : () => onChanged(value),
+      borderRadius: BorderRadius.circular(10),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        child: Row(
+          children: [
+            Icon(icon, size: 18, color: _selected ? color : Colors.grey.shade400),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                label,
+                style: TextStyle(
+                  color     : _selected ? color : Colors.grey.shade700,
+                  fontSize  : 13,
+                  fontWeight: _selected ? FontWeight.w600 : FontWeight.normal),
+              ),
+            ),
+            Radio<String?>(
+              value         : value,
+              groupValue    : groupVal,
+              onChanged     : (v) => onChanged(v),
+              activeColor   : color,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Time picker field (update: tambah isError) ────────────────
 
 class _TimePickerField extends StatelessWidget {
   final String       label;
   final String?      value;
   final VoidCallback onPickTime;
   final VoidCallback onClear;
+  final bool         isError;
 
   const _TimePickerField({
     required this.label,
     required this.value,
     required this.onPickTime,
     required this.onClear,
+    this.isError = false,
   });
 
   @override
   Widget build(BuildContext context) {
+    final borderColor = isError ? _kDanger : Colors.grey.shade300;
     return GestureDetector(
       onTap: onPickTime,
       child: Container(
@@ -1258,11 +1623,12 @@ class _TimePickerField extends StatelessWidget {
         decoration: BoxDecoration(
           color : _kBgLight,
           borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.grey.shade300)),
+          border: Border.all(color: borderColor, width: isError ? 1.5 : 1)),
         child: Row(
           children: [
             Icon(Icons.access_time_rounded,
-              size: 18, color: Colors.grey.shade500),
+              size: 18,
+              color: isError ? _kDanger : Colors.grey.shade500),
             const SizedBox(width: 8),
             Expanded(
               child: Column(
@@ -1270,11 +1636,14 @@ class _TimePickerField extends StatelessWidget {
                 children: [
                   Text(label,
                     style: TextStyle(
-                      color: Colors.grey.shade500, fontSize: 11)),
+                      color   : isError ? _kDanger : Colors.grey.shade500,
+                      fontSize: 11)),
                   Text(
                     value ?? 'Pilih jam',
                     style: TextStyle(
-                      color     : value != null ? _kNavy : Colors.grey.shade400,
+                      color     : value != null
+                          ? (isError ? _kDanger : _kNavy)
+                          : Colors.grey.shade400,
                       fontSize  : 14,
                       fontWeight: value != null
                           ? FontWeight.bold : FontWeight.normal),
@@ -1294,7 +1663,7 @@ class _TimePickerField extends StatelessWidget {
   }
 }
 
-// ─── Card jadwal pengganti ────────────────────────────────────
+// ── Card jadwal pengganti (update: tampilkan mode) ────────────
 
 class _JadwalPenggantiCard extends StatelessWidget {
   final JadwalPenggantiItem jp;
@@ -1308,9 +1677,9 @@ class _JadwalPenggantiCard extends StatelessWidget {
       margin    : const EdgeInsets.only(bottom: 8),
       padding   : const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _kWarning.withOpacity(0.06),
+        color: _kGold.withOpacity(0.06),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: _kWarning.withOpacity(0.3)),
+        border: Border.all(color: _kGold.withOpacity(0.3)),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1318,12 +1687,12 @@ class _JadwalPenggantiCard extends StatelessWidget {
           Container(
             width : 36, height: 36,
             decoration: BoxDecoration(
-              color: _kWarning.withOpacity(0.15),
+              color: _kGold.withOpacity(0.15),
               borderRadius: BorderRadius.circular(8)),
             child: Center(
               child: Text('${jp.pertemuanKe}',
                 style: TextStyle(
-                  color     : _kWarning.withOpacity(0.9),
+                  color     : _kGold.withOpacity(0.9),
                   fontWeight: FontWeight.bold,
                   fontSize  : 14)),
             ),
@@ -1333,9 +1702,20 @@ class _JadwalPenggantiCard extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Pertemuan ke-${jp.pertemuanKe}',
-                  style: const TextStyle(
-                    fontWeight: FontWeight.bold, fontSize: 13)),
+                // Header pertemuan + badge mode
+                Row(
+                  children: [
+                    Text('Pertemuan ke-${jp.pertemuanKe}',
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold, fontSize: 13)),
+                    if (jp.mode != null) ...[
+                      const SizedBox(width: 8),
+                      // [7.2] Tampilkan mode badge
+                      ModeBadge(mode: jp.mode!, fontSize: 9),
+                    ],
+                  ],
+                ),
+                const SizedBox(height: 4),
                 if (jp.jamMulaiBaru != null || jp.jamSelesaiBaru != null)
                   Text(
                     '🕐 ${jp.jamMulaiBaru ?? '-'} – ${jp.jamSelesaiBaru ?? '-'}',
@@ -1367,7 +1747,7 @@ class _JadwalPenggantiCard extends StatelessWidget {
 }
 
 // ══════════════════════════════════════════════════════════════
-// TAB 3 — RIWAYAT
+// TAB 3 — RIWAYAT (tidak berubah signifikan)
 // ══════════════════════════════════════════════════════════════
 
 class _RiwayatTab extends StatelessWidget {
@@ -1427,7 +1807,6 @@ class _RiwayatTab extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Header
                 Row(
                   children: [
                     Container(
@@ -1443,7 +1822,7 @@ class _RiwayatTab extends StatelessWidget {
                           fontSize  : 12)),
                     ),
                     const SizedBox(width: 8),
-                    _ModeBadge(mode: s.mode),
+                    ModeBadge(mode: s.mode),
                     const Spacer(),
                     Container(
                       padding: const EdgeInsets.symmetric(
@@ -1464,12 +1843,10 @@ class _RiwayatTab extends StatelessWidget {
                   ],
                 ),
                 const SizedBox(height: 8),
-                // Waktu
                 Text(_formatWaktu(s.waktuBuka),
                   style: TextStyle(
                     color: Colors.grey.shade500, fontSize: 12)),
                 const SizedBox(height: 10),
-                // Progress bar
                 ClipRRect(
                   borderRadius: BorderRadius.circular(4),
                   child: LinearProgressIndicator(
@@ -1481,7 +1858,6 @@ class _RiwayatTab extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 8),
-                // Statistik
                 Row(
                   children: [
                     _StatLabel(value: s.hadir,    label: 'Hadir',
@@ -1512,6 +1888,466 @@ class _RiwayatTab extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// TAB 4 — KELAS (BARU 7.1)
+// ══════════════════════════════════════════════════════════════
+
+class _KelasTab extends StatefulWidget {
+  final String        matakuliahId;
+  final List<KelasItem> kelasList;
+  final VoidCallback  onRefresh;
+
+  const _KelasTab({
+    required this.matakuliahId,
+    required this.kelasList,
+    required this.onRefresh,
+  });
+
+  @override
+  State<_KelasTab> createState() => _KelasTabState();
+}
+
+class _KelasTabState extends State<_KelasTab>
+    with AutomaticKeepAliveClientMixin {
+  @override
+  bool get wantKeepAlive => true;
+
+  // State: kelas yang sedang di-expand untuk melihat list mahasiswa
+  String? _expandedKelasId;
+  final Map<String, List<MahasiswaKelasItem>> _mahasiswaCache = {};
+  final Map<String, bool>  _loadingKelas  = {};
+  final Map<String, String?> _errorKelas  = {};
+
+  Future<void> _fetchMahasiswaKelas(String kelasId) async {
+    if (_mahasiswaCache.containsKey(kelasId)) return;
+    setState(() {
+      _loadingKelas[kelasId] = true;
+      _errorKelas[kelasId]   = null;
+    });
+    try {
+      final response = await ApiClient().get('/kelas/mahasiswa/$kelasId');
+      if (response.statusCode == 200) {
+        final data = jsonDecode(response.body) as Map<String, dynamic>;
+        final list = ((data['mahasiswa'] as List<dynamic>?) ?? [])
+            .map((e) => MahasiswaKelasItem.fromJson(e as Map<String, dynamic>))
+            .toList();
+        setState(() {
+          _mahasiswaCache[kelasId] = list;
+          _loadingKelas[kelasId]   = false;
+        });
+      } else {
+        final err = jsonDecode(response.body);
+        setState(() {
+          _errorKelas[kelasId]   = err['detail'] ?? 'Gagal memuat';
+          _loadingKelas[kelasId] = false;
+        });
+      }
+    } on ApiException catch (e) {
+      setState(() {
+        _errorKelas[kelasId]   = e.message;
+        _loadingKelas[kelasId] = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorKelas[kelasId]   = e.toString();
+        _loadingKelas[kelasId] = false;
+      });
+    }
+  }
+
+  void _toggleKelas(String kelasId) {
+    setState(() {
+      if (_expandedKelasId == kelasId) {
+        _expandedKelasId = null;
+      } else {
+        _expandedKelasId = kelasId;
+        _fetchMahasiswaKelas(kelasId);
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    super.build(context);
+
+    if (widget.kelasList.isEmpty) {
+      return const _EmptyState(
+        icon : Icons.class_outlined,
+        pesan: 'Belum ada kelas terdaftar',
+        sub  : 'Hubungi admin untuk menambahkan kelas pada matakuliah ini',
+      );
+    }
+
+    return ListView.separated(
+      padding        : const EdgeInsets.all(16),
+      itemCount      : widget.kelasList.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder    : (ctx, i) {
+        final kelas = widget.kelasList[i];
+        return _KelasCard(
+          kelas           : kelas,
+          isExpanded      : _expandedKelasId == kelas.id,
+          isLoading       : _loadingKelas[kelas.id] ?? false,
+          errorMsg        : _errorKelas[kelas.id],
+          mahasiswaList   : _mahasiswaCache[kelas.id] ?? [],
+          onTap           : () => _toggleKelas(kelas.id),
+          onRetry         : () {
+            _mahasiswaCache.remove(kelas.id);
+            _fetchMahasiswaKelas(kelas.id);
+          },
+        );
+      },
+    );
+  }
+}
+
+class _KelasCard extends StatelessWidget {
+  final KelasItem              kelas;
+  final bool                   isExpanded;
+  final bool                   isLoading;
+  final String?                errorMsg;
+  final List<MahasiswaKelasItem> mahasiswaList;
+  final VoidCallback           onTap;
+  final VoidCallback           onRetry;
+
+  const _KelasCard({
+    required this.kelas,
+    required this.isExpanded,
+    required this.isLoading,
+    required this.errorMsg,
+    required this.mahasiswaList,
+    required this.onTap,
+    required this.onRetry,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final kelasColor = _kelasColor(kelas.kodeKelas);
+
+    return Container(
+      decoration: BoxDecoration(
+        color       : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        boxShadow: [
+          BoxShadow(
+            color     : Colors.black.withOpacity(0.04),
+            blurRadius: 8,
+            offset    : const Offset(0, 2)),
+        ],
+        border: isExpanded
+            ? Border.all(color: kelasColor.withOpacity(0.4), width: 1.5)
+            : null,
+      ),
+      child: Column(
+        children: [
+          // ── Header kelas ─────────────────────────────────────
+          InkWell(
+            onTap       : onTap,
+            borderRadius: BorderRadius.circular(14),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Row(
+                children: [
+                  // Avatar kelas
+                  Container(
+                    width : 44, height: 44,
+                    decoration: BoxDecoration(
+                      color       : kelasColor.withOpacity(0.12),
+                      borderRadius: BorderRadius.circular(12)),
+                    child: Center(
+                      child: Text(kelas.kodeKelas,
+                        style: TextStyle(
+                          color     : kelasColor,
+                          fontWeight: FontWeight.bold,
+                          fontSize  : 18)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            KelasBadge(kodeKelas: kelas.kodeKelas),
+                            const SizedBox(width: 8),
+                            // Badge izin tamu
+                            if (kelas.izinTamu)
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: _kAccent.withOpacity(0.1),
+                                  borderRadius: BorderRadius.circular(6)),
+                                child: const Text('Tamu OK',
+                                  style: TextStyle(
+                                    color: _kAccent,
+                                    fontSize: 9,
+                                    fontWeight: FontWeight.bold)),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 4),
+                        // Dosen
+                        if (kelas.dosenNama != null)
+                          Text(kelas.dosenNama!,
+                            style: const TextStyle(
+                              color     : _kNavy,
+                              fontWeight: FontWeight.w600,
+                              fontSize  : 13),
+                            overflow: TextOverflow.ellipsis),
+                        // Jadwal + ruangan
+                        Row(
+                          children: [
+                            if (kelas.hari != null) ...[
+                              Icon(Icons.calendar_today_rounded,
+                                size: 11, color: Colors.grey.shade400),
+                              const SizedBox(width: 3),
+                              Text(kelas.hari!,
+                                style: TextStyle(
+                                  color: Colors.grey.shade500, fontSize: 11)),
+                              const SizedBox(width: 6),
+                            ],
+                            if (kelas.slotMulai != null) ...[
+                              Icon(Icons.access_time_rounded,
+                                size: 11, color: Colors.grey.shade400),
+                              const SizedBox(width: 3),
+                              Text(kelas.labelJam,
+                                style: TextStyle(
+                                  color: Colors.grey.shade500, fontSize: 11)),
+                            ] else if (kelas.jamMulai != null) ...[
+                              Icon(Icons.access_time_rounded,
+                                size: 11, color: Colors.grey.shade400),
+                              const SizedBox(width: 3),
+                              Text(kelas.labelJam,
+                                style: TextStyle(
+                                  color: Colors.grey.shade500, fontSize: 11)),
+                            ],
+                            if (kelas.ruanganNama != null) ...[
+                              const SizedBox(width: 6),
+                              Icon(Icons.room_outlined,
+                                size: 11, color: Colors.grey.shade400),
+                              const SizedBox(width: 3),
+                              Expanded(
+                                child: Text(kelas.ruanganNama!,
+                                  style: TextStyle(
+                                    color: Colors.grey.shade500, fontSize: 11),
+                                  overflow: TextOverflow.ellipsis),
+                              ),
+                            ],
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  // Jumlah mahasiswa + expand icon
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      Text('${kelas.enrolled}',
+                        style: TextStyle(
+                          color     : kelasColor,
+                          fontSize  : 18,
+                          fontWeight: FontWeight.bold)),
+                      Text('mahasiswa',
+                        style: TextStyle(
+                          color   : Colors.grey.shade400,
+                          fontSize: 10)),
+                      const SizedBox(height: 4),
+                      AnimatedRotation(
+                        turns   : isExpanded ? 0.5 : 0,
+                        duration: const Duration(milliseconds: 200),
+                        child: Icon(Icons.keyboard_arrow_down_rounded,
+                          color: Colors.grey.shade400, size: 20),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ),
+
+          // ── Expanded: list mahasiswa ──────────────────────────
+          AnimatedCrossFade(
+            duration       : const Duration(milliseconds: 250),
+            crossFadeState : isExpanded
+                ? CrossFadeState.showSecond
+                : CrossFadeState.showFirst,
+            firstChild : const SizedBox.shrink(),
+            secondChild: isExpanded
+                ? _buildMahasiswaList(kelasColor)
+                : const SizedBox.shrink(),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMahasiswaList(Color kelasColor) {
+    return Column(
+      children: [
+        Divider(height: 1, color: kelasColor.withOpacity(0.2)),
+        if (isLoading)
+          const Padding(
+            padding: EdgeInsets.all(24),
+            child: CircularProgressIndicator(color: _kNavy, strokeWidth: 2),
+          )
+        else if (errorMsg != null)
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              children: [
+                Text(errorMsg!,
+                  style: const TextStyle(color: _kDanger, fontSize: 13)),
+                const SizedBox(height: 8),
+                TextButton.icon(
+                  onPressed: onRetry,
+                  icon : const Icon(Icons.refresh_rounded, size: 16),
+                  label: const Text('Coba Lagi')),
+              ],
+            ),
+          )
+        else if (mahasiswaList.isEmpty)
+          Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              children: [
+                Icon(Icons.people_outline_rounded,
+                  size: 36, color: Colors.grey.shade200),
+                const SizedBox(height: 8),
+                Text('Belum ada mahasiswa di kelas ini',
+                  style: TextStyle(
+                    color: Colors.grey.shade400, fontSize: 13)),
+              ],
+            ),
+          )
+        else
+          // List mahasiswa dalam kelas
+          Column(
+            children: [
+              // Header count
+              Builder(builder: (ctx) {
+                final asli = mahasiswaList.where((m) => !m.isTamu).length;
+                final tamu = mahasiswaList.where((m) => m.isTamu).length;
+                return Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+                  child: Row(
+                    children: [
+                      Text('${mahasiswaList.length} mahasiswa',
+                        style: TextStyle(
+                          color: Colors.grey.shade500,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500)),
+                      const Spacer(),
+                      if (tamu > 0)
+                        Text('$asli asli · $tamu tamu',
+                          style: TextStyle(
+                            color: Colors.grey.shade400, fontSize: 11)),
+                    ],
+                  ),
+                );
+              }),
+              ...mahasiswaList.asMap().entries.map((entry) {
+                final idx = entry.key;
+                final mhs = entry.value;
+                final isLast = idx == mahasiswaList.length - 1;
+                return _MahasiswaKelasRow(
+                  mhs    : mhs,
+                  isLast : isLast,
+                  color  : kelasColor,
+                );
+              }),
+              const SizedBox(height: 8),
+            ],
+          ),
+      ],
+    );
+  }
+
+  Color _kelasColor(String kode) {
+    switch (kode.toUpperCase()) {
+      case 'A' : return _kNavy;
+      case 'B' : return _kAccent;
+      case 'C' : return _kPurple;
+      case 'D' : return Colors.orange.shade700;
+      default  : return _kNavy;
+    }
+  }
+}
+
+class _MahasiswaKelasRow extends StatelessWidget {
+  final MahasiswaKelasItem mhs;
+  final bool               isLast;
+  final Color              color;
+
+  const _MahasiswaKelasRow({
+    required this.mhs,
+    required this.isLast,
+    required this.color,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+          child: Row(
+            children: [
+              CircleAvatar(
+                radius         : 18,
+                backgroundColor: color.withOpacity(0.10),
+                child          : Text(mhs.inisial,
+                  style: TextStyle(
+                    color     : color,
+                    fontWeight: FontWeight.bold,
+                    fontSize  : 12)),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(mhs.namaLengkap,
+                            style: const TextStyle(
+                              fontWeight: FontWeight.w600,
+                              fontSize  : 13,
+                              color     : _kNavy),
+                            overflow: TextOverflow.ellipsis),
+                        ),
+                        if (mhs.isTamu) ...[
+                          const SizedBox(width: 6),
+                          const TamuBadge(),
+                        ],
+                      ],
+                    ),
+                    Text(mhs.nim,
+                      style: TextStyle(
+                        color: Colors.grey.shade500, fontSize: 11)),
+                    if (mhs.isTamu && mhs.kelasAsal != null)
+                      Text('dari ${mhs.kelasAsal}',
+                        style: TextStyle(
+                          color: Colors.orange.shade600, fontSize: 10)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+        if (!isLast)
+          Divider(
+            height: 1,
+            color : Colors.grey.shade100,
+            indent: 52,
+          ),
+      ],
     );
   }
 }
@@ -1640,26 +2476,6 @@ class _InfoRow extends StatelessWidget {
             color: _kNavy, fontSize: 13, fontWeight: FontWeight.w500)),
       ),
     ],
-  );
-}
-
-class _ModeBadge extends StatelessWidget {
-  final String mode;
-  const _ModeBadge({required this.mode});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-    decoration: BoxDecoration(
-      color: mode == 'online'
-          ? _kPurple.withOpacity(0.1)
-          : _kNavy.withOpacity(0.08),
-      borderRadius: BorderRadius.circular(6)),
-    child: Text(
-      mode == 'online' ? '💻 Online' : '📍 Offline',
-      style: TextStyle(
-        color: mode == 'online' ? _kPurple : _kNavy,
-        fontSize: 11, fontWeight: FontWeight.w600)),
   );
 }
 
