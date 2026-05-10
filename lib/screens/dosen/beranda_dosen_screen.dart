@@ -1,5 +1,10 @@
 // lib/screens/dosen/beranda_dosen_screen.dart
-// Fase 5 UPDATE: onTap card matakuliah sekarang navigasi ke DetailMatakuliahScreen
+// Fase 6.1 UPDATE:
+// - HAPUS: Section "Semua Matakuliah" — dipindah ke JadwalDosenScreen
+// - TAMBAH: Card sesi aktif yang sedang berjalan di bagian atas
+// - UPDATE: Badge kelas (A/B/C) dan SlotLabel di setiap kartu jadwal
+// - UPDATE: Bottom sheet Buka Sesi — dropdown pilih kelas jika multi-kelas,
+//           kirim kelas_id ke POST /sesi/buka
 
 import 'dart:async';
 import 'dart:convert';
@@ -9,16 +14,11 @@ import 'package:intl/intl.dart';
 import 'package:provider/provider.dart';
 
 import 'package:presensi_app/core/api_client.dart';
+import 'package:presensi_app/core/theme.dart';
 import 'package:presensi_app/providers/auth_provider.dart';
-
-// ─── Konstanta warna ──────────────────────────────────────────
-const _kNavy      = Color(0xFF1E3A5F);
-const _kNavyLight = Color(0xFF2A5298);
-const _kAccent    = Color(0xFF00BFA5);
-const _kWarning   = Color(0xFFFFA726);
-const _kDanger    = Color(0xFFEF5350);
-const _kBgLight   = Color(0xFFF5F7FA);
-const _kPurple    = Color(0xFF7C3AED);
+import 'package:presensi_app/widgets/kelas_badge.dart';
+import 'package:presensi_app/widgets/mode_badge.dart';
+import 'package:presensi_app/widgets/slot_label.dart';
 
 // ─── Model ────────────────────────────────────────────────────
 
@@ -42,6 +42,12 @@ class JadwalHariIniItem {
   final String? jamMulaiPengganti;
   final String? jamSelesaiPengganti;
   final String? ruanganPengganti;
+  // ── [BARU Fase 6.1] ──────────────────────────────────────
+  final String? kodeKelas;   // 'A', 'B', 'C'
+  final String? kelasId;
+  final int?    slotMulai;
+  final int?    slotSelesai;
+  final List<Map<String, dynamic>> kelasList; // Multi-kelas untuk dropdown
 
   const JadwalHariIniItem({
     required this.matakuliahId,
@@ -63,88 +69,53 @@ class JadwalHariIniItem {
     this.jamMulaiPengganti,
     this.jamSelesaiPengganti,
     this.ruanganPengganti,
+    this.kodeKelas,
+    this.kelasId,
+    this.slotMulai,
+    this.slotSelesai,
+    this.kelasList           = const [],
   });
 
   factory JadwalHariIniItem.fromJson(Map<String, dynamic> j) =>
       JadwalHariIniItem(
-        matakuliahId      : j['matakuliah_id']          as String,
-        kode              : j['kode']                   as String,
-        nama              : j['nama']                   as String,
-        sks               : j['sks']                    as int,
-        hari              : j['hari']                   as String?,
-        jamMulai          : j['jam_mulai']              as String?,
-        jamSelesai        : j['jam_selesai']            as String?,
-        ruangan           : j['ruangan']                as String?,
-        izinTamu          : j['izin_tamu']              as bool?   ?? false,
-        jumlahMahasiswa   : j['jumlah_mahasiswa']       as int?    ?? 0,
-        statusSesi        : j['status_sesi']            as String? ?? 'belum_mulai',
-        sesiId            : j['sesi_id']                as String?,
-        pertemuanKe       : j['pertemuan_ke']           as int?,
-        kodeSesi          : j['kode_sesi']              as String?,
-        detikTersisa      : j['detik_tersisa']          as int?,
-        adaJadwalPengganti: j['ada_jadwal_pengganti']   as bool?   ?? false,
-        jamMulaiPengganti : j['jam_mulai_pengganti']    as String?,
-        jamSelesaiPengganti:j['jam_selesai_pengganti']  as String?,
-        ruanganPengganti  : j['ruangan_pengganti']      as String?,
+        matakuliahId       : j['matakuliah_id']         as String,
+        kode               : j['kode']                  as String,
+        nama               : j['nama']                  as String,
+        sks                : j['sks']                   as int,
+        hari               : j['hari']                  as String?,
+        jamMulai           : j['jam_mulai']             as String?,
+        jamSelesai         : j['jam_selesai']            as String?,
+        ruangan            : j['ruangan']               as String?,
+        izinTamu           : j['izin_tamu']             as bool?   ?? false,
+        jumlahMahasiswa    : j['jumlah_mahasiswa']      as int?    ?? 0,
+        statusSesi         : j['status_sesi']           as String? ?? 'belum_mulai',
+        sesiId             : j['sesi_id']               as String?,
+        pertemuanKe        : j['pertemuan_ke']          as int?,
+        kodeSesi           : j['kode_sesi']             as String?,
+        detikTersisa       : j['detik_tersisa']         as int?,
+        adaJadwalPengganti : j['ada_jadwal_pengganti']  as bool?   ?? false,
+        jamMulaiPengganti  : j['jam_mulai_pengganti']   as String?,
+        jamSelesaiPengganti: j['jam_selesai_pengganti'] as String?,
+        ruanganPengganti   : j['ruangan_pengganti']     as String?,
+        kodeKelas          : j['kode_kelas']            as String?,
+        kelasId            : j['kelas_id']              as String?,
+        slotMulai          : j['slot_mulai']            as int?,
+        slotSelesai        : j['slot_selesai']          as int?,
+        kelasList          : (j['kelas_list'] as List<dynamic>?)
+                                ?.cast<Map<String, dynamic>>() ?? [],
       );
 
   String get labelJam {
     final mulai   = (adaJadwalPengganti && jamMulaiPengganti != null)
-        ? jamMulaiPengganti!
-        : (jamMulai ?? '-');
+        ? jamMulaiPengganti! : (jamMulai   ?? '-');
     final selesai = (adaJadwalPengganti && jamSelesaiPengganti != null)
-        ? jamSelesaiPengganti!
-        : (jamSelesai ?? '-');
+        ? jamSelesaiPengganti! : (jamSelesai ?? '-');
     return '$mulai – $selesai';
   }
 
   String get labelRuangan =>
       (adaJadwalPengganti && ruanganPengganti != null)
-          ? ruanganPengganti!
-          : (ruangan ?? '-');
-}
-
-class MatakuliahRingkasan {
-  final String  matakuliahId;
-  final String  kode;
-  final String  nama;
-  final int     sks;
-  final String? hari;
-  final String? jamMulai;
-  final String? jamSelesai;
-  final String? ruangan;
-  final int     jumlahMahasiswa;
-  final bool    adaSesiAktif;
-  final String? sesiId;
-
-  const MatakuliahRingkasan({
-    required this.matakuliahId,
-    required this.kode,
-    required this.nama,
-    required this.sks,
-    this.hari,
-    this.jamMulai,
-    this.jamSelesai,
-    this.ruangan,
-    required this.jumlahMahasiswa,
-    required this.adaSesiAktif,
-    this.sesiId,
-  });
-
-  factory MatakuliahRingkasan.fromJson(Map<String, dynamic> j) =>
-      MatakuliahRingkasan(
-        matakuliahId   : j['matakuliah_id']    as String,
-        kode           : j['kode']             as String,
-        nama           : j['nama']             as String,
-        sks            : j['sks']              as int,
-        hari           : j['hari']             as String?,
-        jamMulai       : j['jam_mulai']        as String?,
-        jamSelesai     : j['jam_selesai']      as String?,
-        ruangan        : j['ruangan']          as String?,
-        jumlahMahasiswa: j['jumlah_mahasiswa'] as int?    ?? 0,
-        adaSesiAktif   : j['ada_sesi_aktif']   as bool?   ?? false,
-        sesiId         : j['sesi_id']          as String?,
-      );
+          ? ruanganPengganti! : (ruangan ?? '-');
 }
 
 // ─── BerandaDosenScreen ───────────────────────────────────────
@@ -169,15 +140,19 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
   @override
   bool get wantKeepAlive => true;
 
-  String  _namaDosen       = '';
-  String  _nidn            = '';
-  String  _hariIni         = '';
-  bool    _isLoading       = true;
+  String  _namaDosen  = '';
+  String  _nidn       = '';
+  String  _hariIni    = '';
+  bool    _isLoading  = true;
   String? _error;
-  bool    _isFetching      = false;
+  bool    _isFetching = false;
 
-  List<JadwalHariIniItem>   _jadwalHariIni    = [];
-  List<MatakuliahRingkasan> _semuaMatakuliah  = [];
+  List<JadwalHariIniItem> _jadwalHariIni = [];
+  // [DIHAPUS Fase 6.1] _semuaMatakuliah sudah tidak dipakai di beranda
+
+  // Sesi-sesi yang sedang aktif (dari _jadwalHariIni)
+  List<JadwalHariIniItem> get _sesiAktifList =>
+      _jadwalHariIni.where((j) => j.statusSesi == 'aktif').toList();
 
   Timer?           _countdownTimer;
   final Map<String, int> _countdownMap = {};
@@ -201,24 +176,19 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
 
     try {
       final response = await ApiClient().get('/dosen/beranda');
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final data     = jsonDecode(response.body) as Map<String, dynamic>;
 
       final jadwal = (data['jadwal_hari_ini'] as List<dynamic>? ?? [])
           .map((e) => JadwalHariIniItem.fromJson(e as Map<String, dynamic>))
           .toList();
 
-      final semua = (data['semua_matakuliah'] as List<dynamic>? ?? [])
-          .map((e) => MatakuliahRingkasan.fromJson(e as Map<String, dynamic>))
-          .toList();
-
-      final adaAktif = jadwal.any((j) => j.statusSesi == 'aktif') ||
-          semua.any((mk) => mk.adaSesiAktif);
+      // [Fase 6.1] Tidak lagi fetch semua_matakuliah di beranda
+      final adaAktif = jadwal.any((j) => j.statusSesi == 'aktif');
       widget.onSesiAktifChanged?.call(adaAktif);
 
       final newMap = <String, int>{};
       for (final j in jadwal) {
-        if (j.sesiId != null &&
-            j.detikTersisa != null &&
+        if (j.sesiId != null && j.detikTersisa != null &&
             j.statusSesi == 'aktif') {
           newMap[j.sesiId!] = j.detikTersisa!;
         }
@@ -226,12 +196,11 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
 
       if (mounted) {
         setState(() {
-          _namaDosen       = data['nama_dosen'] as String? ?? '';
-          _nidn            = data['nidn']       as String? ?? '';
-          _hariIni         = data['hari_ini']   as String? ?? '';
-          _jadwalHariIni   = jadwal;
-          _semuaMatakuliah = semua;
-          _isLoading       = false;
+          _namaDosen     = data['nama_dosen'] as String? ?? '';
+          _nidn          = data['nidn']       as String? ?? '';
+          _hariIni       = data['hari_ini']   as String? ?? '';
+          _jadwalHariIni = jadwal;
+          _isLoading     = false;
           _countdownMap
             ..clear()
             ..addAll(newMap);
@@ -240,13 +209,9 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
       }
 
     } on ApiException catch (e) {
-      if (mounted) {
-        setState(() { _error = e.message; _isLoading = false; });
-      }
+      if (mounted) setState(() { _error = e.message; _isLoading = false; });
     } catch (e) {
-      if (mounted) {
-        setState(() { _error = e.toString(); _isLoading = false; });
-      }
+      if (mounted) setState(() { _error = e.toString(); _isLoading = false; });
     } finally {
       _isFetching = false;
     }
@@ -259,9 +224,7 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
       if (!mounted) return;
       setState(() {
         for (final key in _countdownMap.keys.toList()) {
-          if (_countdownMap[key]! > 0) {
-            _countdownMap[key] = _countdownMap[key]! - 1;
-          }
+          if (_countdownMap[key]! > 0) _countdownMap[key] = _countdownMap[key]! - 1;
         }
       });
     });
@@ -283,9 +246,8 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
         onBerhasil: (sesiData) {
           Navigator.pop(ctx);
           _fetchBeranda();
-          final mode   = sesiData['mode'] as String? ?? '';
-          final sesiId = sesiData['id']   as String?;
-
+          final mode   = sesiData['mode']  as String? ?? '';
+          final sesiId = sesiData['id']    as String?;
           if (mode == 'online') {
             context.go('/dosen/kode', extra: sesiData);
           } else {
@@ -300,10 +262,10 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
   Widget build(BuildContext context) {
     super.build(context);
     return Scaffold(
-      backgroundColor: _kBgLight,
+      backgroundColor: AppColors.kBgLight,
       body: RefreshIndicator(
         onRefresh: _fetchBeranda,
-        color    : _kNavy,
+        color    : AppColors.kNavy,
         child    : _isLoading
             ? const _LoadingView()
             : _error != null
@@ -318,25 +280,22 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
 
     return CustomScrollView(
       slivers: [
+        // ── AppBar ─────────────────────────────────────────
         SliverAppBar(
           expandedHeight: 150,
           pinned        : true,
-          backgroundColor: _kNavy,
+          backgroundColor: AppColors.kNavy,
           automaticallyImplyLeading: false,
           elevation     : 0,
           flexibleSpace : FlexibleSpaceBar(
             background: Container(
               decoration: const BoxDecoration(
-                gradient: LinearGradient(
-                  begin : Alignment.topLeft,
-                  end   : Alignment.bottomRight,
-                  colors: [_kNavy, _kNavyLight],
-                ),
+                gradient: AppColors.kNavyGradient,
               ),
               child: SafeArea(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(20, 16, 60, 16),
-                  child: Row(
+                  child  : Row(
                     children: [
                       Expanded(
                         child: Column(
@@ -344,18 +303,15 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
                           mainAxisAlignment : MainAxisAlignment.center,
                           children: [
                             Text(_getSapaan(),
-                              style: const TextStyle(
-                                color: Colors.white70, fontSize: 13)),
+                              style: AppTypography.heroSubtitle),
                             const SizedBox(height: 4),
                             Text(namaDepan,
-                              style: const TextStyle(
-                                color: Colors.white, fontSize: 22,
-                                fontWeight: FontWeight.bold),
+                              style  : AppTypography.hero.copyWith(fontSize: 22),
                               overflow: TextOverflow.ellipsis),
                             const SizedBox(height: 2),
                             Text(_nidn,
-                              style: const TextStyle(
-                                color: Colors.white60, fontSize: 12)),
+                              style: AppTypography.heroSubtitle
+                                  .copyWith(fontSize: 12)),
                           ],
                         ),
                       ),
@@ -365,9 +321,7 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
                         child          : Text(
                           namaDepan.isNotEmpty
                               ? namaDepan[0].toUpperCase() : 'D',
-                          style: const TextStyle(
-                            color: Colors.white, fontSize: 22,
-                            fontWeight: FontWeight.bold)),
+                          style: AppTypography.hero.copyWith(fontSize: 22)),
                       ),
                     ],
                   ),
@@ -375,8 +329,8 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
               ),
             ),
           ),
-          title: const Text('Beranda',
-            style: TextStyle(color: Colors.white, fontSize: 18)),
+          title: Text('Beranda',
+            style: AppTypography.hero.copyWith(fontSize: 18)),
           titleSpacing: 20,
           actions: [
             IconButton(
@@ -385,11 +339,17 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
               tooltip  : 'Refresh',
             ),
           ],
+          bottom: PreferredSize(
+            preferredSize: const Size.fromHeight(2),
+            child: Container(height: 2,
+                color: AppColors.kGold.withOpacity(0.5)),
+          ),
         ),
 
+        // Sub-header: tanggal
         SliverToBoxAdapter(
           child: Container(
-            color  : _kNavy,
+            color  : AppColors.kNavy,
             padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
             child  : Row(
               children: [
@@ -399,8 +359,7 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
                 Text(
                   DateFormat('EEEE, d MMMM yyyy', 'id_ID')
                       .format(DateTime.now()),
-                  style: const TextStyle(
-                    color: Colors.white70, fontSize: 13)),
+                  style: AppTypography.heroSubtitle.copyWith(fontSize: 13)),
               ],
             ),
           ),
@@ -411,6 +370,34 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
           sliver : SliverList(
             delegate: SliverChildListDelegate([
 
+              // ── [BARU Fase 6.1] Card sesi aktif di bagian atas ──
+              if (_sesiAktifList.isNotEmpty) ...[
+                _SectionHeader(
+                  title   : '🔴 Sesi Berlangsung',
+                  subtitle: '${_sesiAktifList.length} sesi aktif',
+                ),
+                const SizedBox(height: 10),
+                ..._sesiAktifList.map((j) => _SesiAktifCard(
+                  jadwal         : j,
+                  countdownDetik : _countdownMap[j.sesiId ?? ''],
+                  formatCountdown: _formatCountdown,
+                  onMonitor      : () => widget.onGoToMonitor?.call(j.sesiId),
+                  onTampilKode   : () {
+                    if (j.sesiId == null) return;
+                    context.go('/dosen/kode', extra: {
+                      'id'           : j.sesiId,
+                      'sesi_id'      : j.sesiId,
+                      'kode_sesi'    : j.kodeSesi ?? '',
+                      'detik_tersisa': _countdownMap[j.sesiId!]
+                                       ?? j.detikTersisa ?? 0,
+                      'mode'         : 'online',
+                    });
+                  },
+                )),
+                const SizedBox(height: 20),
+              ],
+
+              // ── Jadwal Hari Ini ────────────────────────────────
               _SectionHeader(
                 title   : '📅 Jadwal $_hariIni',
                 subtitle: '${_jadwalHariIni.length} matakuliah',
@@ -447,34 +434,13 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
                       'mode'         : 'online',
                     });
                   },
-                  // ── BARU Fase 5: navigasi ke detail matakuliah ──
                   onDetailMatakuliah: () =>
                       context.go('/dosen/matakuliah/${j.matakuliahId}'),
                 )),
 
-              const SizedBox(height: 24),
-
-              _SectionHeader(
-                title   : '📚 Semua Matakuliah',
-                subtitle: '${_semuaMatakuliah.length} matakuliah',
-              ),
-              const SizedBox(height: 10),
-
-              if (_semuaMatakuliah.isEmpty)
-                const _EmptyCard(
-                  icon : Icons.school_outlined,
-                  pesan: 'Belum ada matakuliah',
-                  sub  : 'Hubungi admin untuk menambahkan matakuliah',
-                )
-              else
-                ..._semuaMatakuliah.map((mk) => _MatakuliahCard(
-                  mk        : mk,
-                  // ── BARU Fase 5: navigasi ke detail matakuliah ──
-                  onTap     : () =>
-                      context.go('/dosen/matakuliah/${mk.matakuliahId}'),
-                  onSesiAktif: () =>
-                      widget.onGoToMonitor?.call(mk.sesiId),
-                )),
+              // ── [Fase 6.1] Info: Semua MK telah dipindah ──────
+              const SizedBox(height: 16),
+              _InfoPindahCard(),
             ]),
           ),
         ),
@@ -491,38 +457,247 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
   }
 }
 
-// ─── Section header ───────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// [BARU Fase 6.1] WIDGET: Card Sesi Aktif (ringkas di atas)
+// Berbeda dengan _JadwalCard — ini lebih compact, fokus monitor
+// ══════════════════════════════════════════════════════════════
 
-class _SectionHeader extends StatelessWidget {
-  final String title;
-  final String subtitle;
-  const _SectionHeader({required this.title, required this.subtitle});
+class _SesiAktifCard extends StatelessWidget {
+  final JadwalHariIniItem    jadwal;
+  final int?                 countdownDetik;
+  final String Function(int) formatCountdown;
+  final VoidCallback         onMonitor;
+  final VoidCallback         onTampilKode;
+
+  const _SesiAktifCard({
+    required this.jadwal,
+    required this.countdownDetik,
+    required this.formatCountdown,
+    required this.onMonitor,
+    required this.onTampilKode,
+  });
 
   @override
-  Widget build(BuildContext context) => Row(
-    children: [
-      Text(title,
-        style: const TextStyle(
-          color: _kNavy, fontSize: 15,
-          fontWeight: FontWeight.bold)),
-      const Spacer(),
-      Text(subtitle,
-        style: TextStyle(color: Colors.grey.shade500, fontSize: 12)),
-    ],
-  );
+  Widget build(BuildContext context) {
+    final isOnline  = jadwal.kodeSesi != null;
+    final sisiWaktu = countdownDetik;
+
+    return Container(
+      margin    : const EdgeInsets.only(bottom: 10),
+      decoration: BoxDecoration(
+        color : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppColors.kGreen.withOpacity(0.4), width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color    : AppColors.kGreen.withOpacity(0.10),
+            blurRadius: 10,
+            offset   : const Offset(0, 3)),
+        ],
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(14),
+        child: Row(
+          children: [
+            // Pulse dot
+            _PulseDot(color: AppColors.kGreen),
+            const SizedBox(width: 10),
+
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Nama MK + badge kelas
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(jadwal.nama,
+                          style   : AppTypography.bodyBold.copyWith(
+                            color: AppColors.kNavy, fontSize: 14),
+                          overflow: TextOverflow.ellipsis),
+                      ),
+                      if (jadwal.kodeKelas != null) ...[
+                        const SizedBox(width: 6),
+                        KelasBadge(kodeKelas: jadwal.kodeKelas!),
+                      ],
+                    ],
+                  ),
+                  const SizedBox(height: 4),
+
+                  // Pertemuan + mode + jam
+                  Row(
+                    children: [
+                      if (jadwal.pertemuanKe != null)
+                        Text('Pertemuan ${jadwal.pertemuanKe}  · ',
+                          style: AppTypography.caption),
+                      ModeBadge(
+                        mode    : isOnline ? 'online' : 'offline',
+                        fontSize: 10,
+                      ),
+                      const SizedBox(width: 6),
+                      // Slot atau jam
+                      if (jadwal.slotMulai != null)
+                        SlotLabelCompact(
+                          slotMulai  : jadwal.slotMulai,
+                          slotSelesai: jadwal.slotSelesai,
+                          fontSize   : 11,
+                        )
+                      else
+                        Text(jadwal.labelJam,
+                          style: AppTypography.caption),
+                    ],
+                  ),
+
+                  // Kode sesi + countdown (online)
+                  if (isOnline && jadwal.kodeSesi != null &&
+                      sisiWaktu != null) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.vpn_key_rounded,
+                          size: 13, color: AppColors.kNavy),
+                        const SizedBox(width: 4),
+                        Text(jadwal.kodeSesi!,
+                          style: AppTypography.kodeSmall.copyWith(fontSize: 15)),
+                        const Spacer(),
+                        Icon(Icons.timer_outlined,
+                          size: 12,
+                          color: sisiWaktu < 300
+                              ? AppColors.kDanger : AppColors.kGreen),
+                        const SizedBox(width: 3),
+                        Text(formatCountdown(sisiWaktu),
+                          style: AppTypography.label.copyWith(
+                            color: sisiWaktu < 300
+                                ? AppColors.kDanger : AppColors.kGreen,
+                            fontWeight: FontWeight.bold)),
+                      ],
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            const SizedBox(width: 10),
+
+            // Tombol aksi
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                _ActionBtnSmall(
+                  label    : 'Monitor',
+                  icon     : Icons.bar_chart_rounded,
+                  color    : AppColors.kNavy,
+                  onPressed: onMonitor,
+                ),
+                if (isOnline) ...[
+                  const SizedBox(height: 6),
+                  _ActionBtnSmall(
+                    label    : 'Kode',
+                    icon     : Icons.vpn_key_rounded,
+                    color    : AppColors.kNavyLight,
+                    onPressed: onTampilKode,
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-// ─── Card jadwal hari ini ─────────────────────────────────────
+class _ActionBtnSmall extends StatelessWidget {
+  final String       label;
+  final IconData     icon;
+  final Color        color;
+  final VoidCallback onPressed;
+
+  const _ActionBtnSmall({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onPressed,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 12, color: Colors.white),
+            const SizedBox(width: 4),
+            Text(label,
+              style: AppTypography.badge.copyWith(
+                color: Colors.white, fontSize: 11)),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// [Fase 6.1] WIDGET: Info card "Semua MK telah dipindah"
+// ══════════════════════════════════════════════════════════════
+
+class _InfoPindahCard extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color       : AppColors.kNavy.withOpacity(0.05),
+        borderRadius: BorderRadius.circular(12),
+        border      : Border.all(color: AppColors.kNavy.withOpacity(0.12)),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.calendar_month_rounded,
+            color: AppColors.kNavy.withOpacity(0.6), size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Semua Matakuliah',
+                  style: AppTypography.label.copyWith(
+                    color     : AppColors.kNavy,
+                    fontWeight: FontWeight.w700)),
+                const SizedBox(height: 2),
+                Text('Lihat jadwal mingguan & semua MK di tab Jadwal',
+                  style: AppTypography.caption),
+              ],
+            ),
+          ),
+          Icon(Icons.chevron_right_rounded,
+            color: AppColors.kNavy.withOpacity(0.4), size: 18),
+        ],
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// WIDGET: Jadwal Card — UPDATE dengan badge kelas & slot label
+// ══════════════════════════════════════════════════════════════
 
 class _JadwalCard extends StatelessWidget {
   final JadwalHariIniItem    jadwal;
   final int?                 countdownDetik;
   final String Function(int) formatCountdown;
-  final VoidCallback onBukaSesi;
-  final VoidCallback onMonitor;
-  final VoidCallback onRekap;
-  final VoidCallback onTampilKode;
-  final VoidCallback onDetailMatakuliah; // ← BARU Fase 5
+  final VoidCallback         onBukaSesi;
+  final VoidCallback         onMonitor;
+  final VoidCallback         onRekap;
+  final VoidCallback         onTampilKode;
+  final VoidCallback         onDetailMatakuliah;
 
   const _JadwalCard({
     required this.jadwal,
@@ -537,9 +712,9 @@ class _JadwalCard extends StatelessWidget {
 
   Color get _statusColor {
     switch (jadwal.statusSesi) {
-      case 'aktif'  : return _kAccent;
-      case 'selesai': return Colors.grey.shade400;
-      default       : return _kNavy;
+      case 'aktif'  : return AppColors.kGreen;
+      case 'selesai': return AppColors.kTextSecondary;
+      default       : return AppColors.kNavy;
     }
   }
 
@@ -562,31 +737,31 @@ class _JadwalCard extends StatelessWidget {
         color       : Colors.white,
         borderRadius: BorderRadius.circular(16),
         border      : isAktif
-            ? Border.all(color: _kAccent.withOpacity(0.4), width: 1.5)
+            ? Border.all(color: AppColors.kGreen.withOpacity(0.4), width: 1.5)
             : isSelesai
                 ? Border.all(color: Colors.grey.shade200)
                 : null,
         boxShadow: [
           BoxShadow(
             color     : Colors.black.withOpacity(0.05),
-            blurRadius: 10,
-            offset    : const Offset(0, 3),
-          ),
+            blurRadius: 10, offset: const Offset(0, 3)),
         ],
       ),
       child: Column(
         children: [
-          // Header — tap untuk ke detail matakuliah
+          // Header — tap ke detail matakuliah
           InkWell(
             onTap       : onDetailMatakuliah,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(16)),
+            borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(16)),
             child: Padding(
               padding: const EdgeInsets.all(16),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+                  // Bar status warna
                   Container(
-                    width: 4, height: 60,
+                    width: 4, height: 64,
                     decoration: BoxDecoration(
                       color       : _statusColor,
                       borderRadius: BorderRadius.circular(2)),
@@ -596,25 +771,32 @@ class _JadwalCard extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        // Row 1: kode + kelas badge + sks + status badge
                         Row(
                           children: [
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 2),
                               decoration: BoxDecoration(
-                                color: _kNavy.withOpacity(0.08),
+                                color: AppColors.kNavy.withOpacity(0.08),
                                 borderRadius: BorderRadius.circular(6)),
                               child: Text(jadwal.kode,
-                                style: const TextStyle(
-                                  color: _kNavy, fontSize: 11,
-                                  fontWeight: FontWeight.bold)),
+                                style: AppTypography.badge.copyWith(
+                                  color   : AppColors.kNavy,
+                                  fontSize: 11)),
                             ),
                             const SizedBox(width: 6),
+
+                            // [BARU Fase 6.1] Badge kelas
+                            if (jadwal.kodeKelas != null) ...[
+                              KelasBadge(kodeKelas: jadwal.kodeKelas!),
+                              const SizedBox(width: 6),
+                            ],
+
                             Text('${jadwal.sks} SKS',
-                              style: TextStyle(
-                                color: Colors.grey.shade400,
-                                fontSize: 11)),
+                              style: AppTypography.caption),
                             const Spacer(),
+                            // Status badge
                             Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 8, vertical: 3),
@@ -629,47 +811,56 @@ class _JadwalCard extends StatelessWidget {
                                     const SizedBox(width: 4),
                                   ],
                                   Text(_statusLabel,
-                                    style: TextStyle(
-                                      color: _statusColor, fontSize: 10,
-                                      fontWeight: FontWeight.bold)),
+                                    style: AppTypography.badge.copyWith(
+                                      color: _statusColor, fontSize: 10)),
                                 ],
                               ),
                             ),
                           ],
                         ),
                         const SizedBox(height: 6),
+
+                        // Nama MK
                         Row(
                           children: [
                             Expanded(
                               child: Text(jadwal.nama,
-                                style: const TextStyle(
-                                  color: _kNavy, fontSize: 15,
-                                  fontWeight: FontWeight.bold),
+                                style  : AppTypography.bodyBold.copyWith(
+                                  color: AppColors.kNavy, fontSize: 15),
                                 overflow: TextOverflow.ellipsis),
                             ),
-                            // Ikon detail → ke halaman detail matakuliah
                             Icon(Icons.info_outline_rounded,
                               size : 16,
                               color: Colors.grey.shade400),
                           ],
                         ),
                         const SizedBox(height: 6),
+
+                        // [UPDATE Fase 6.1] Jam: slot atau jam biasa
                         Row(
                           children: [
                             Icon(Icons.access_time_rounded,
                               size: 13, color: Colors.grey.shade500),
                             const SizedBox(width: 4),
-                            Text(jadwal.labelJam,
-                              style: TextStyle(
-                                color: Colors.grey.shade600, fontSize: 12)),
+                            jadwal.slotMulai != null
+                                ? SlotLabel(
+                                    slotMulai      : jadwal.slotMulai,
+                                    slotSelesai    : jadwal.slotSelesai,
+                                    showIcon       : false,
+                                    showSlotNumber : true,
+                                    fontSize       : 12,
+                                  )
+                                : Text(jadwal.labelJam,
+                                    style: AppTypography.body2
+                                        .copyWith(fontSize: 12)),
                             const SizedBox(width: 10),
                             Icon(Icons.room_outlined,
                               size: 13, color: Colors.grey.shade500),
                             const SizedBox(width: 4),
                             Expanded(
                               child: Text(jadwal.labelRuangan,
-                                style: TextStyle(
-                                  color: Colors.grey.shade600, fontSize: 12),
+                                style: AppTypography.body2
+                                    .copyWith(fontSize: 12),
                                 overflow: TextOverflow.ellipsis),
                             ),
                           ],
@@ -682,6 +873,7 @@ class _JadwalCard extends StatelessWidget {
             ),
           ),
 
+          // Sub-info row: pertemuan + pengganti + mahasiswa + izin tamu
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Row(
@@ -690,77 +882,72 @@ class _JadwalCard extends StatelessWidget {
                   _InfoChip(
                     label: 'Pertemuan ${jadwal.pertemuanKe}',
                     color: Colors.blue.shade700,
-                    bg   : Colors.blue.shade50,
-                  ),
+                    bg   : Colors.blue.shade50),
                 if (jadwal.pertemuanKe != null)
                   const SizedBox(width: 6),
                 if (jadwal.adaJadwalPengganti)
                   _InfoChip(
                     label: '⟳ Jadwal Pengganti',
-                    color: _kWarning,
-                    bg   : _kWarning.withOpacity(0.1),
-                  ),
+                    color: AppColors.kWarning,
+                    bg   : AppColors.kWarning.withOpacity(0.1)),
                 const Spacer(),
                 Icon(Icons.people_outline_rounded,
                   size: 13, color: Colors.grey.shade400),
                 const SizedBox(width: 4),
                 Text('${jadwal.jumlahMahasiswa} mhs',
-                  style: TextStyle(
-                    color: Colors.grey.shade500, fontSize: 12)),
+                  style: AppTypography.caption),
                 if (jadwal.izinTamu) ...[
                   const SizedBox(width: 6),
                   _InfoChip(
                     label: 'Tamu OK',
-                    color: _kAccent,
-                    bg   : _kAccent.withOpacity(0.1),
-                  ),
+                    color: AppColors.kGreen,
+                    bg   : AppColors.kGreen.withOpacity(0.1)),
                 ],
               ],
             ),
           ),
 
-          if (isAktif &&
-              jadwal.kodeSesi != null &&
+          // Countdown kode (online + aktif)
+          if (isAktif && jadwal.kodeSesi != null &&
               countdownDetik != null)
             Container(
               margin   : const EdgeInsets.fromLTRB(16, 0, 16, 10),
               padding  : const EdgeInsets.symmetric(
                 horizontal: 14, vertical: 10),
               decoration: BoxDecoration(
-                color  : _kNavy.withOpacity(0.04),
+                color: AppColors.kNavy.withOpacity(0.04),
                 borderRadius: BorderRadius.circular(10),
-                border : Border.all(
-                  color: _kNavy.withOpacity(0.1))),
+                border: Border.all(
+                  color: AppColors.kNavy.withOpacity(0.1))),
               child: Row(
                 children: [
                   const Icon(Icons.vpn_key_rounded,
-                    size: 16, color: _kNavy),
+                    size: 16, color: AppColors.kNavy),
                   const SizedBox(width: 8),
                   Text('Kode: ',
-                    style: TextStyle(
-                      color: Colors.grey.shade600, fontSize: 13)),
+                    style: AppTypography.body2.copyWith(fontSize: 13)),
                   Text(jadwal.kodeSesi!,
-                    style: const TextStyle(
-                      color: _kNavy, fontSize: 16,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 3)),
+                    style: AppTypography.kodeSmall),
                   const Spacer(),
                   Icon(Icons.timer_outlined,
                     size : 14,
-                    color: countdownDetik! < 300 ? _kDanger : _kAccent),
+                    color: countdownDetik! < 300
+                        ? AppColors.kDanger : AppColors.kGreen),
                   const SizedBox(width: 4),
                   Text(
                     formatCountdown(countdownDetik!),
-                    style: TextStyle(
-                      color: countdownDetik! < 300 ? _kDanger : _kAccent,
-                      fontSize: 13,
-                      fontWeight: FontWeight.bold)),
+                    style: AppTypography.label.copyWith(
+                      color: countdownDetik! < 300
+                          ? AppColors.kDanger : AppColors.kGreen,
+                      fontWeight: FontWeight.bold,
+                      fontSize  : 13)),
                 ],
               ),
             ),
 
           const Divider(height: 1),
 
+          // Tombol aksi
           Padding(
             padding: const EdgeInsets.all(12),
             child  : _buildActions(),
@@ -779,10 +966,9 @@ class _JadwalCard extends StatelessWidget {
             child: _ActionBtn(
               label    : 'Monitor Live',
               icon     : Icons.bar_chart_rounded,
-              color    : _kNavy,
+              color    : AppColors.kNavy,
               filled   : true,
-              onPressed: onMonitor,
-            ),
+              onPressed: onMonitor),
           ),
           const SizedBox(width: 8),
           Expanded(
@@ -790,17 +976,15 @@ class _JadwalCard extends StatelessWidget {
                 ? _ActionBtn(
                     label    : 'Kode',
                     icon     : Icons.vpn_key_rounded,
-                    color    : _kPurple,
+                    color    : const Color(0xFF7C3AED),
                     filled   : false,
-                    onPressed: onTampilKode,
-                  )
+                    onPressed: onTampilKode)
                 : _ActionBtn(
                     label    : 'Rekap',
                     icon     : Icons.summarize_rounded,
-                    color    : _kNavy,
+                    color    : AppColors.kNavy,
                     filled   : false,
-                    onPressed: onRekap,
-                  ),
+                    onPressed: onRekap),
           ),
         ],
       );
@@ -815,17 +999,15 @@ class _JadwalCard extends StatelessWidget {
               icon     : Icons.summarize_rounded,
               color    : Colors.blue.shade700,
               filled   : true,
-              onPressed: onRekap,
-            ),
+              onPressed: onRekap),
           ),
           const SizedBox(width: 8),
           _ActionBtn(
             label    : 'Detail',
             icon     : Icons.school_outlined,
-            color    : _kNavy,
+            color    : AppColors.kNavy,
             filled   : false,
-            onPressed: onDetailMatakuliah,
-          ),
+            onPressed: onDetailMatakuliah),
         ],
       );
     }
@@ -838,31 +1020,403 @@ class _JadwalCard extends StatelessWidget {
           child: _ActionBtn(
             label    : 'Buka Sesi',
             icon     : Icons.play_circle_rounded,
-            color    : _kNavy,
+            color    : AppColors.kNavy,
             filled   : true,
-            onPressed: onBukaSesi,
-          ),
+            onPressed: onBukaSesi),
         ),
         const SizedBox(width: 8),
         _ActionBtn(
           label    : 'Detail',
           icon     : Icons.school_outlined,
-          color    : _kNavy,
+          color    : AppColors.kNavy,
           filled   : false,
-          onPressed: onDetailMatakuliah,
-        ),
+          onPressed: onDetailMatakuliah),
       ],
     );
   }
 }
 
-// ─── Info chip ────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// WIDGET: Bottom Sheet Buka Sesi — UPDATE dengan dropdown kelas
+// ══════════════════════════════════════════════════════════════
+
+class _BukaSesiBottomSheet extends StatefulWidget {
+  final JadwalHariIniItem                   jadwal;
+  final void Function(Map<String, dynamic>) onBerhasil;
+
+  const _BukaSesiBottomSheet({
+    required this.jadwal,
+    required this.onBerhasil,
+  });
+
+  @override
+  State<_BukaSesiBottomSheet> createState() =>
+      _BukaSesiBottomSheetState();
+}
+
+class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
+  String _mode            = 'offline';
+  int?   _batasTerlambat  = 15;
+  int    _durasiKode      = 30;
+  bool   _mulaiDariJadwal = true;
+  bool   _isLoading       = false;
+
+  // [BARU Fase 6.1] Kelas terpilih (null = tidak ada multi-kelas)
+  Map<String, dynamic>? _selectedKelas;
+
+  final List<int?> _opsiTerlambat = [null, 0, 10, 15, 30];
+  final List<int>  _opsiDurasi    = [15, 30, 60, 90];
+
+  bool get _hasMultiKelas => widget.jadwal.kelasList.length > 1;
+
+  String _labelTerlambat(int? val) {
+    if (val == null) return 'Tidak ada batas';
+    if (val == 0)   return 'Langsung';
+    return '$val mnt';
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    // Jika hanya satu kelas, langsung auto-select
+    if (widget.jadwal.kelasList.length == 1) {
+      _selectedKelas = widget.jadwal.kelasList.first;
+    }
+  }
+
+  Future<void> _bukaSesi() async {
+    final pertemuanKe = widget.jadwal.pertemuanKe;
+    if (pertemuanKe == null) {
+      _showSnack('Tidak dapat menentukan nomor pertemuan');
+      return;
+    }
+
+    // Validasi: jika multi-kelas, wajib pilih kelas
+    if (_hasMultiKelas && _selectedKelas == null) {
+      _showSnack('Pilih kelas terlebih dahulu');
+      return;
+    }
+
+    setState(() => _isLoading = true);
+    try {
+      final body = <String, dynamic>{
+        'matakuliah_id'        : widget.jadwal.matakuliahId,
+        'mode'                 : _mode,
+        'pertemuan_ke'         : pertemuanKe,
+        'batas_terlambat_menit': _batasTerlambat,
+        'mulai_dari_jam_jadwal': _mulaiDariJadwal,
+      };
+
+      // [BARU Fase 6.1] Kirim kelas_id jika tersedia
+      final kelasId = _selectedKelas?['id'] as String?
+                   ?? widget.jadwal.kelasId;
+      if (kelasId != null && kelasId.isNotEmpty) {
+        body['kelas_id'] = kelasId;
+      }
+
+      if (_mode == 'online') body['durasi_menit'] = _durasiKode;
+
+      final response = await ApiClient().post('/sesi/buka', body: body);
+      final data     = jsonDecode(response.body) as Map<String, dynamic>;
+
+      if (!mounted) return;
+      widget.onBerhasil(data);
+
+    } on ApiException catch (e) {
+      if (mounted) _showSnack(e.message);
+    } catch (e) {
+      if (mounted) _showSnack('Gagal buka sesi: $e');
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
+    }
+  }
+
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content        : Text(msg),
+      backgroundColor: AppColors.kDanger,
+      behavior       : SnackBarBehavior.floating,
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: EdgeInsets.only(
+        left  : 24, right: 24, top: 8,
+        bottom: 24 + MediaQuery.of(context).padding.bottom,
+      ),
+      decoration: const BoxDecoration(
+        color       : Colors.white,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize      : MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            // Handle bar
+            Center(
+              child: Container(
+                width : 36, height: 4,
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color       : Colors.grey.shade300,
+                  borderRadius: BorderRadius.circular(2)),
+              ),
+            ),
+
+            // Judul
+            Text('Buka Sesi Presensi',
+              style: AppTypography.heading3),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '${widget.jadwal.nama}  ·  ${widget.jadwal.kode}',
+                    style  : AppTypography.body2,
+                    overflow: TextOverflow.ellipsis),
+                ),
+                // Badge kelas dari jadwal (jika ada & single kelas)
+                if (widget.jadwal.kodeKelas != null && !_hasMultiKelas) ...[
+                  const SizedBox(width: 6),
+                  KelasBadge(kodeKelas: widget.jadwal.kodeKelas!),
+                ],
+              ],
+            ),
+
+            const SizedBox(height: 20),
+            const Divider(),
+            const SizedBox(height: 16),
+
+            // ── [BARU Fase 6.1] Dropdown pilih kelas (multi-kelas) ──
+            if (_hasMultiKelas) ...[
+              Text('Kelas',
+                style: AppTypography.bodyBold.copyWith(
+                  color: AppColors.kNavy, fontSize: 13)),
+              const SizedBox(height: 8),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                decoration: BoxDecoration(
+                  color       : AppColors.kBgLight,
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: AppColors.kSoftGray, width: 1)),
+                child: DropdownButtonHideUnderline(
+                  child: DropdownButton<Map<String, dynamic>>(
+                    value      : _selectedKelas,
+                    isExpanded : true,
+                    hint       : Text('Pilih kelas...',
+                      style: AppTypography.body2),
+                    items: widget.jadwal.kelasList.map((kelas) {
+                      final kodeKls = kelas['kode_kelas'] as String? ?? '';
+                      final dosen   = kelas['dosen_nama'] as String? ?? '-';
+                      final ruangan = kelas['ruangan_nama'] as String? ?? '';
+                      return DropdownMenuItem(
+                        value: kelas,
+                        child: Row(
+                          children: [
+                            KelasBadge(kodeKelas: kodeKls, showPrefix: true),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(dosen,
+                                    style  : AppTypography.body2
+                                        .copyWith(fontSize: 12),
+                                    overflow: TextOverflow.ellipsis),
+                                  if (ruangan.isNotEmpty)
+                                    Text(ruangan,
+                                      style  : AppTypography.caption,
+                                      overflow: TextOverflow.ellipsis),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    }).toList(),
+                    onChanged: (val) =>
+                        setState(() => _selectedKelas = val),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // ── Pertemuan ke ──────────────────────────────────
+            _SheetInfoRow(
+              label: 'Pertemuan ke',
+              value: widget.jadwal.pertemuanKe != null
+                  ? '${widget.jadwal.pertemuanKe}' : 'Tidak tersedia',
+            ),
+            const SizedBox(height: 12),
+
+            // ── Waktu mulai ───────────────────────────────────
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text('Waktu Mulai',
+                        style: AppTypography.bodyBold.copyWith(
+                          color: AppColors.kNavy, fontSize: 13)),
+                      Text(
+                        _mulaiDariJadwal
+                            ? 'Dari jam jadwal '
+                              '(${widget.jadwal.jamMulai ?? "-"})'
+                            : 'Dari sekarang',
+                        style: AppTypography.body2.copyWith(fontSize: 12)),
+                    ],
+                  ),
+                ),
+                Switch.adaptive(
+                  value    : _mulaiDariJadwal,
+                  onChanged: (v) => setState(() => _mulaiDariJadwal = v),
+                  activeColor: AppColors.kNavy,
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // ── Mode kelas ────────────────────────────────────
+            Text('Mode Kelas',
+              style: AppTypography.bodyBold.copyWith(
+                color: AppColors.kNavy, fontSize: 13)),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: _SheetModeChip(
+                    label   : '📍 Tatap Muka',
+                    selected: _mode == 'offline',
+                    color   : AppColors.kNavy,
+                    onTap   : () => setState(() => _mode = 'offline'),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: _SheetModeChip(
+                    label   : '💻 Online',
+                    selected: _mode == 'online',
+                    color   : const Color(0xFF7C3AED),
+                    onTap   : () => setState(() => _mode = 'online'),
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 16),
+
+            // ── Toleransi terlambat ───────────────────────────
+            Text('Toleransi Terlambat',
+              style: AppTypography.bodyBold.copyWith(
+                color: AppColors.kNavy, fontSize: 13)),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8, runSpacing: 6,
+              children: _opsiTerlambat.map((v) => ChoiceChip(
+                label    : Text(_labelTerlambat(v),
+                  style: AppTypography.caption),
+                selected : _batasTerlambat == v,
+                onSelected: (_) =>
+                    setState(() => _batasTerlambat = v),
+                selectedColor: AppColors.kNavy,
+                labelStyle: TextStyle(
+                  color: _batasTerlambat == v
+                      ? Colors.white : AppColors.kTextPrimary),
+              )).toList(),
+            ),
+            const SizedBox(height: 16),
+
+            // ── Durasi kode (online) ──────────────────────────
+            if (_mode == 'online') ...[
+              Text('Durasi Kode Aktif',
+                style: AppTypography.bodyBold.copyWith(
+                  color: AppColors.kNavy, fontSize: 13)),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8, runSpacing: 6,
+                children: _opsiDurasi.map((v) => ChoiceChip(
+                  label    : Text('$v mnt',
+                    style: AppTypography.caption),
+                  selected : _durasiKode == v,
+                  onSelected: (_) =>
+                      setState(() => _durasiKode = v),
+                  selectedColor: const Color(0xFF7C3AED),
+                  labelStyle: TextStyle(
+                    color: _durasiKode == v
+                        ? Colors.white : AppColors.kTextPrimary),
+                )).toList(),
+              ),
+              const SizedBox(height: 16),
+            ],
+
+            // ── Tombol buka sesi ──────────────────────────────
+            SizedBox(
+              height: 52,
+              child : ElevatedButton.icon(
+                onPressed: (_isLoading ||
+                    widget.jadwal.pertemuanKe == null ||
+                    (_hasMultiKelas && _selectedKelas == null))
+                    ? null : _bukaSesi,
+                icon : _isLoading
+                    ? const SizedBox(
+                        width: 18, height: 18,
+                        child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
+                    : const Icon(Icons.play_circle_rounded, size: 22),
+                label: Text(
+                  _isLoading
+                      ? 'Membuka...'
+                      : _mode == 'online'
+                          ? 'Buka Sesi & Generate Kode'
+                          : 'Buka Sesi Tatap Muka',
+                  style: AppTypography.button),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor:
+                      _mode == 'online'
+                          ? const Color(0xFF7C3AED) : AppColors.kNavy,
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ══════════════════════════════════════════════════════════════
+// WIDGET HELPERS (shared)
+// ══════════════════════════════════════════════════════════════
+
+class _SectionHeader extends StatelessWidget {
+  final String title;
+  final String subtitle;
+  const _SectionHeader({required this.title, required this.subtitle});
+
+  @override
+  Widget build(BuildContext context) => Row(
+    children: [
+      Text(title,
+        style: AppTypography.sectionTitle),
+      const Spacer(),
+      Text(subtitle,
+        style: AppTypography.caption),
+    ],
+  );
+}
 
 class _InfoChip extends StatelessWidget {
   final String label;
   final Color  color;
   final Color  bg;
-
   const _InfoChip({
     required this.label,
     required this.color,
@@ -875,13 +1429,9 @@ class _InfoChip extends StatelessWidget {
     decoration: BoxDecoration(
       color: bg, borderRadius: BorderRadius.circular(8)),
     child: Text(label,
-      style: TextStyle(
-        color: color, fontSize: 11,
-        fontWeight: FontWeight.w600)),
+      style: AppTypography.badge.copyWith(color: color, fontSize: 11)),
   );
 }
-
-// ─── Action button ────────────────────────────────────────────
 
 class _ActionBtn extends StatelessWidget {
   final String   label;
@@ -905,7 +1455,7 @@ class _ActionBtn extends StatelessWidget {
         onPressed: onPressed,
         icon : Icon(icon, size: 16),
         label: Text(label,
-          style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+          style: AppTypography.buttonSmall),
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
           foregroundColor: Colors.white,
@@ -919,7 +1469,7 @@ class _ActionBtn extends StatelessWidget {
       onPressed: onPressed,
       icon : Icon(icon, size: 16),
       label: Text(label,
-        style: const TextStyle(fontSize: 13, fontWeight: FontWeight.bold)),
+        style: AppTypography.buttonSmall),
       style: OutlinedButton.styleFrom(
         foregroundColor: color,
         side: BorderSide(color: color.withOpacity(0.4)),
@@ -931,374 +1481,6 @@ class _ActionBtn extends StatelessWidget {
   }
 }
 
-// ─── Card matakuliah (tap → detail) ──────────────────────────
-
-class _MatakuliahCard extends StatelessWidget {
-  final MatakuliahRingkasan mk;
-  final VoidCallback        onTap;        // ← sekarang ke detail matakuliah
-  final VoidCallback        onSesiAktif;
-
-  const _MatakuliahCard({
-    required this.mk,
-    required this.onTap,
-    required this.onSesiAktif,
-  });
-
-  @override
-  Widget build(BuildContext context) => Card(
-    margin    : const EdgeInsets.only(bottom: 8),
-    elevation : 1,
-    shape     : RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(12)),
-    child     : InkWell(
-      onTap       : onTap,
-      borderRadius: BorderRadius.circular(12),
-      child: Padding(
-        padding: const EdgeInsets.all(14),
-        child: Row(
-          children: [
-            Container(
-              width : 44, height: 44,
-              decoration: BoxDecoration(
-                color: _kNavy.withOpacity(0.08),
-                borderRadius: BorderRadius.circular(10)),
-              child: Center(
-                child: Text(
-                  mk.hari?.substring(0, 3) ?? '?',
-                  style: const TextStyle(
-                    color: _kNavy, fontSize: 12,
-                    fontWeight: FontWeight.bold)),
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(mk.nama,
-                    style: const TextStyle(
-                      color: _kNavy, fontSize: 14,
-                      fontWeight: FontWeight.bold),
-                    overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 3),
-                  Text(
-                    '${mk.kode}  ·  '
-                    '${mk.jamMulai ?? '-'} – ${mk.jamSelesai ?? '-'}'
-                    '${mk.ruangan != null ? "  ·  ${mk.ruangan}" : ""}',
-                    style: TextStyle(
-                      color: Colors.grey.shade500, fontSize: 12),
-                    overflow: TextOverflow.ellipsis),
-                  const SizedBox(height: 2),
-                  Text('${mk.jumlahMahasiswa} mahasiswa',
-                    style: TextStyle(
-                      color: Colors.grey.shade400, fontSize: 11)),
-                ],
-              ),
-            ),
-            if (mk.adaSesiAktif)
-              GestureDetector(
-                onTap: onSesiAktif,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 6),
-                  decoration: BoxDecoration(
-                    color : _kAccent.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(
-                      color: _kAccent.withOpacity(0.3))),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      _PulseDot(color: _kAccent),
-                      const SizedBox(width: 5),
-                      const Text('Live',
-                        style: TextStyle(
-                          color: _kAccent, fontSize: 11,
-                          fontWeight: FontWeight.bold)),
-                    ],
-                  ),
-                ),
-              )
-            else
-              // Ikon panah → memberi sinyal "bisa tap ke detail"
-              Icon(Icons.chevron_right_rounded,
-                color: Colors.grey.shade300, size: 20),
-          ],
-        ),
-      ),
-    ),
-  );
-}
-
-// ─── Bottom sheet buka sesi ───────────────────────────────────
-
-class _BukaSesiBottomSheet extends StatefulWidget {
-  final JadwalHariIniItem                   jadwal;
-  final void Function(Map<String, dynamic>) onBerhasil;
-
-  const _BukaSesiBottomSheet({
-    required this.jadwal,
-    required this.onBerhasil,
-  });
-
-  @override
-  State<_BukaSesiBottomSheet> createState() =>
-      _BukaSesiBottomSheetState();
-}
-
-class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
-  String _mode            = 'offline';
-  int?   _batasTerlambat  = 15;
-  int    _durasiKode      = 30;
-  bool   _mulaiDariJadwal = true;
-  bool   _isLoading       = false;
-
-  final List<int?> _opsiTerlambat = [null, 0, 10, 15, 30];
-  final List<int>  _opsiDurasi    = [15, 30, 60, 90];
-
-  String _labelTerlambat(int? val) {
-    if (val == null) return 'Tidak ada batas';
-    if (val == 0)   return 'Langsung';
-    return '$val mnt';
-  }
-
-  Future<void> _bukaSesi() async {
-    final pertemuanKe = widget.jadwal.pertemuanKe;
-    if (pertemuanKe == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content : Text('Tidak dapat menentukan nomor pertemuan'),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
-      return;
-    }
-
-    setState(() => _isLoading = true);
-    try {
-      final body = <String, dynamic>{
-        'matakuliah_id'        : widget.jadwal.matakuliahId,
-        'mode'                 : _mode,
-        'pertemuan_ke'         : pertemuanKe,
-        'batas_terlambat_menit': _batasTerlambat,
-        'mulai_dari_jam_jadwal': _mulaiDariJadwal,
-      };
-      if (_mode == 'online') body['durasi_menit'] = _durasiKode;
-
-      final response = await ApiClient().post('/sesi/buka', body: body);
-      final data     = jsonDecode(response.body) as Map<String, dynamic>;
-
-      if (!mounted) return;
-      widget.onBerhasil(data);
-
-    } on ApiException catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content        : Text(e.message),
-          backgroundColor: _kDanger,
-          behavior       : SnackBarBehavior.floating,
-        ));
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content        : Text('Gagal buka sesi: $e'),
-          backgroundColor: _kDanger,
-          behavior       : SnackBarBehavior.floating,
-        ));
-      }
-    } finally {
-      if (mounted) setState(() => _isLoading = false);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: EdgeInsets.only(
-        left: 24, right: 24, top: 8,
-        bottom: 24 + MediaQuery.of(context).padding.bottom,
-      ),
-      decoration: const BoxDecoration(
-        color       : Colors.white,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize      : MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Center(
-              child: Container(
-                width : 36, height: 4,
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color       : Colors.grey.shade300,
-                  borderRadius: BorderRadius.circular(2)),
-              ),
-            ),
-
-            Text('Buka Sesi Presensi',
-              style: const TextStyle(
-                color: _kNavy, fontSize: 18,
-                fontWeight: FontWeight.bold)),
-            const SizedBox(height: 4),
-            Text('${widget.jadwal.nama}  ·  ${widget.jadwal.kode}',
-              style: TextStyle(
-                color: Colors.grey.shade500, fontSize: 13)),
-
-            const SizedBox(height: 20),
-            const Divider(),
-            const SizedBox(height: 16),
-
-            _SheetInfoRow(
-              label: 'Pertemuan ke',
-              value: widget.jadwal.pertemuanKe != null
-                  ? '${widget.jadwal.pertemuanKe}'
-                  : 'Tidak tersedia',
-            ),
-            const SizedBox(height: 12),
-
-            Row(
-              children: [
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Text('Waktu Mulai',
-                        style: TextStyle(
-                          color: _kNavy, fontSize: 13,
-                          fontWeight: FontWeight.w600)),
-                      Text(
-                        _mulaiDariJadwal
-                            ? 'Dari jam jadwal '
-                              '(${widget.jadwal.jamMulai ?? "-"})'
-                            : 'Dari sekarang',
-                        style: TextStyle(
-                          color: Colors.grey.shade500, fontSize: 12)),
-                    ],
-                  ),
-                ),
-                Switch.adaptive(
-                  value    : _mulaiDariJadwal,
-                  onChanged: (v) =>
-                      setState(() => _mulaiDariJadwal = v),
-                  activeColor: _kNavy,
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            const Text('Mode Kelas',
-              style: TextStyle(
-                color: _kNavy, fontSize: 13,
-                fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: _SheetModeChip(
-                    label   : '📍 Tatap Muka',
-                    selected: _mode == 'offline',
-                    color   : _kNavy,
-                    onTap   : () => setState(() => _mode = 'offline'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: _SheetModeChip(
-                    label   : '💻 Online',
-                    selected: _mode == 'online',
-                    color   : _kPurple,
-                    onTap   : () => setState(() => _mode = 'online'),
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
-
-            const Text('Toleransi Terlambat',
-              style: TextStyle(
-                color: _kNavy, fontSize: 13,
-                fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8, runSpacing: 6,
-              children: _opsiTerlambat.map((v) => ChoiceChip(
-                label    : Text(_labelTerlambat(v),
-                  style: const TextStyle(fontSize: 12)),
-                selected : _batasTerlambat == v,
-                onSelected: (_) =>
-                    setState(() => _batasTerlambat = v),
-                selectedColor: _kNavy,
-                labelStyle: TextStyle(
-                  color: _batasTerlambat == v
-                      ? Colors.white : Colors.black87),
-              )).toList(),
-            ),
-            const SizedBox(height: 16),
-
-            if (_mode == 'online') ...[
-              const Text('Durasi Kode Aktif',
-                style: TextStyle(
-                  color: _kNavy, fontSize: 13,
-                  fontWeight: FontWeight.w600)),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8, runSpacing: 6,
-                children: _opsiDurasi.map((v) => ChoiceChip(
-                  label    : Text('$v mnt',
-                    style: const TextStyle(fontSize: 12)),
-                  selected : _durasiKode == v,
-                  onSelected: (_) =>
-                      setState(() => _durasiKode = v),
-                  selectedColor: _kPurple,
-                  labelStyle: TextStyle(
-                    color: _durasiKode == v
-                        ? Colors.white : Colors.black87),
-                )).toList(),
-              ),
-              const SizedBox(height: 16),
-            ],
-
-            SizedBox(
-              height: 52,
-              child : ElevatedButton.icon(
-                onPressed: (_isLoading ||
-                    widget.jadwal.pertemuanKe == null)
-                    ? null : _bukaSesi,
-                icon : _isLoading
-                    ? const SizedBox(
-                        width: 18, height: 18,
-                        child: CircularProgressIndicator(
-                          color: Colors.white, strokeWidth: 2))
-                    : const Icon(Icons.play_circle_rounded, size: 22),
-                label: Text(
-                  _isLoading
-                      ? 'Membuka...'
-                      : _mode == 'online'
-                          ? 'Buka Sesi & Generate Kode'
-                          : 'Buka Sesi Tatap Muka',
-                  style: const TextStyle(
-                    fontSize: 15, fontWeight: FontWeight.bold)),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor:
-                      _mode == 'online' ? _kPurple : _kNavy,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-// ─── Sheet helpers ────────────────────────────────────────────
-
 class _SheetInfoRow extends StatelessWidget {
   final String label;
   final String value;
@@ -1308,12 +1490,10 @@ class _SheetInfoRow extends StatelessWidget {
   Widget build(BuildContext context) => Row(
     mainAxisAlignment: MainAxisAlignment.spaceBetween,
     children: [
-      Text(label,
-        style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+      Text(label, style: AppTypography.body2),
       Text(value,
-        style: const TextStyle(
-          color: _kNavy, fontSize: 13,
-          fontWeight: FontWeight.w600)),
+        style: AppTypography.bodyBold.copyWith(
+          color: AppColors.kNavy, fontSize: 13)),
     ],
   );
 }
@@ -1344,14 +1524,14 @@ class _SheetModeChip extends StatelessWidget {
           color: selected ? color : Colors.grey.shade300)),
       child: Text(label,
         textAlign: TextAlign.center,
-        style: TextStyle(
-          color: selected ? Colors.white : Colors.black87,
-          fontSize: 13, fontWeight: FontWeight.bold)),
+        style: AppTypography.button.copyWith(
+          color: selected ? Colors.white : AppColors.kTextPrimary,
+          fontSize: 13)),
     ),
   );
 }
 
-// ─── Pulse dot ────────────────────────────────────────────────
+// ── Pulse Dot ─────────────────────────────────────────────────
 
 class _PulseDot extends StatefulWidget {
   final Color color;
@@ -1370,7 +1550,7 @@ class _PulseDotState extends State<_PulseDot>
   void initState() {
     super.initState();
     _ctrl = AnimationController(
-      vsync   : this,
+      vsync: this,
       duration: const Duration(milliseconds: 900),
     )..repeat(reverse: true);
     _anim = Tween<double>(begin: 0.4, end: 1.0).animate(_ctrl);
@@ -1383,13 +1563,13 @@ class _PulseDotState extends State<_PulseDot>
   Widget build(BuildContext context) => FadeTransition(
     opacity: _anim,
     child: Container(
-      width : 7, height: 7,
+      width: 8, height: 8,
       decoration: BoxDecoration(
         color: widget.color, shape: BoxShape.circle)),
   );
 }
 
-// ─── Empty card ───────────────────────────────────────────────
+// ── Empty Card ────────────────────────────────────────────────
 
 class _EmptyCard extends StatelessWidget {
   final IconData icon;
@@ -1419,20 +1599,18 @@ class _EmptyCard extends StatelessWidget {
         Icon(icon, size: 52, color: Colors.grey.shade200),
         const SizedBox(height: 12),
         Text(pesan,
-          style: const TextStyle(
-            color: _kNavy, fontSize: 14,
-            fontWeight: FontWeight.bold)),
+          style: AppTypography.bodyBold.copyWith(
+            color: AppColors.kNavy, fontSize: 14)),
         const SizedBox(height: 6),
         Text(sub,
           textAlign: TextAlign.center,
-          style: TextStyle(
-            color: Colors.grey.shade400, fontSize: 12)),
+          style: AppTypography.caption),
       ],
     ),
   );
 }
 
-// ─── Loading & Error ──────────────────────────────────────────
+// ── Loading & Error ───────────────────────────────────────────
 
 class _LoadingView extends StatelessWidget {
   const _LoadingView();
@@ -1442,7 +1620,7 @@ class _LoadingView extends StatelessWidget {
     child: Column(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        CircularProgressIndicator(color: _kNavy),
+        CircularProgressIndicator(color: AppColors.kNavy),
         SizedBox(height: 16),
         Text('Memuat beranda...',
           style: TextStyle(color: Colors.grey)),
@@ -1467,22 +1645,19 @@ class _ErrorView extends StatelessWidget {
           Icon(Icons.wifi_off_rounded,
             size: 64, color: Colors.grey.shade300),
           const SizedBox(height: 16),
-          const Text('Gagal memuat beranda',
-            style: TextStyle(
-              color: _kNavy, fontSize: 16,
-              fontWeight: FontWeight.bold)),
+          Text('Gagal memuat beranda',
+            style: AppTypography.heading3.copyWith(fontSize: 16)),
           const SizedBox(height: 8),
           Text(error,
             textAlign: TextAlign.center,
-            style: TextStyle(
-              color: Colors.grey.shade500, fontSize: 13)),
+            style: AppTypography.body2),
           const SizedBox(height: 20),
           ElevatedButton.icon(
             onPressed: onRetry,
             icon : const Icon(Icons.refresh_rounded),
             label: const Text('Coba Lagi'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: _kNavy,
+              backgroundColor: AppColors.kNavy,
               foregroundColor: Colors.white),
           ),
         ],
