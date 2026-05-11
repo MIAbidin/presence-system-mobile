@@ -1,10 +1,9 @@
 // lib/screens/dosen/rekap_screen.dart
-// FASE 6 UPDATE:
-// - RekapScreen: tombol ekspor Excel benar-benar download file
-// - Tambah share rekap
-// - Progress bar lebih informatif
-// - Skeleton loading
-// - RekapListScreen: tidak ada perubahan signifikan (sudah bagus)
+// FASE 8 UPDATE:
+// - RekapListScreen: badge kelas & mode, filter kelas_id, filter mode
+// - RekapScreen: info kelas & mode di header
+// - Fix ekspor: Share.shareXFiles + getTemporaryDirectory (iOS compat)
+// - Progress overlay saat ekspor lebih informatif
 
 import 'dart:convert';
 import 'dart:io';
@@ -15,17 +14,13 @@ import 'package:presensi_app/core/api_client.dart';
 import 'package:http/http.dart' as http;
 import 'package:presensi_app/core/storage.dart';
 import 'package:presensi_app/core/constants.dart';
+import 'package:presensi_app/core/theme.dart';
+import 'package:presensi_app/widgets/kelas_badge.dart';
+import 'package:presensi_app/widgets/mode_badge.dart';
 import 'package:share_plus/share_plus.dart';
 
-// ─── Konstanta warna ──────────────────────────────────────────
-const _kNavy    = Color(0xFF1E3A5F);
-const _kAccent  = Color(0xFF00BFA5);
-const _kWarning = Color(0xFFFFA726);
-const _kDanger  = Color(0xFFEF5350);
-const _kBgLight = Color(0xFFF5F7FA);
-
 // ══════════════════════════════════════════════════════════════
-// REKAP LIST SCREEN — Tab Rekap (tidak banyak berubah)
+// REKAP LIST SCREEN — Tab Rekap (Fase 8 update)
 // ══════════════════════════════════════════════════════════════
 
 class RekapListScreen extends StatefulWidget {
@@ -47,9 +42,13 @@ class _RekapListScreenState extends State<RekapListScreen>
   List<Map<String, dynamic>> _allSesi      = [];
   List<Map<String, dynamic>> _filteredSesi = [];
 
-  String  _filterMk   = 'semua';
-  String  _filterMode = 'semua';
-  List<String> _mkList = [];
+  // ── Filter state ──────────────────────────────────────────
+  String  _filterMk    = 'semua';
+  String  _filterMode  = 'semua';
+  String  _filterKelas = 'semua'; // [BARU Fase 8]
+
+  List<String> _mkList    = [];
+  List<String> _kelasList = []; // [BARU Fase 8]
 
   @override
   void initState() {
@@ -65,16 +64,21 @@ class _RekapListScreenState extends State<RekapListScreen>
       final list     = (data['sesi_list'] as List<dynamic>? ?? [])
           .cast<Map<String, dynamic>>();
 
-      final mkSet = <String>{};
+      final mkSet    = <String>{};
+      final kelasSet = <String>{}; // [BARU Fase 8]
+
       for (final s in list) {
-        final mk = s['matakuliah'] as String? ?? '';
-        if (mk.isNotEmpty) mkSet.add(mk);
+        final mk    = s['matakuliah']  as String? ?? '';
+        final kelas = s['kode_kelas']  as String? ?? ''; // [BARU Fase 8]
+        if (mk.isNotEmpty)    mkSet.add(mk);
+        if (kelas.isNotEmpty) kelasSet.add(kelas);
       }
 
       setState(() {
-        _allSesi   = list;
-        _mkList    = mkSet.toList()..sort();
-        _isLoading = false;
+        _allSesi    = list;
+        _mkList     = mkSet.toList()..sort();
+        _kelasList  = kelasSet.toList()..sort(); // [BARU Fase 8]
+        _isLoading  = false;
       });
       _applyFilter();
     } on ApiException catch (e) {
@@ -87,20 +91,36 @@ class _RekapListScreenState extends State<RekapListScreen>
   void _applyFilter() {
     setState(() {
       _filteredSesi = _allSesi.where((s) {
-        final mk   = s['matakuliah'] as String? ?? '';
-        final mode = s['mode']       as String? ?? '';
-        final mkOk   = _filterMk   == 'semua' || mk   == _filterMk;
-        final modeOk = _filterMode == 'semua' || mode == _filterMode;
-        return mkOk && modeOk;
+        final mk    = s['matakuliah']  as String? ?? '';
+        final mode  = s['mode']        as String? ?? '';
+        final kelas = s['kode_kelas']  as String? ?? ''; // [BARU Fase 8]
+
+        final mkOk    = _filterMk    == 'semua' || mk    == _filterMk;
+        final modeOk  = _filterMode  == 'semua' || mode  == _filterMode;
+        final kelasOk = _filterKelas == 'semua' || kelas == _filterKelas; // [BARU]
+
+        return mkOk && modeOk && kelasOk;
       }).toList();
     });
   }
 
+  bool get _hasActiveFilter =>
+      _filterMk != 'semua' || _filterMode != 'semua' || _filterKelas != 'semua';
+
+  void _resetFilter() {
+    setState(() {
+      _filterMk    = 'semua';
+      _filterMode  = 'semua';
+      _filterKelas = 'semua';
+    });
+    _applyFilter();
+  }
+
   Color _statusColor(String status) {
     switch (status) {
-      case 'aktif'  : return _kAccent;
-      case 'selesai': return Colors.grey.shade500;
-      default       : return _kNavy;
+      case 'aktif'  : return AppColors.kGreen;
+      case 'selesai': return AppColors.kTextSecondary;
+      default       : return AppColors.kNavy;
     }
   }
 
@@ -120,28 +140,25 @@ class _RekapListScreenState extends State<RekapListScreen>
   Widget build(BuildContext context) {
     super.build(context);
     return Scaffold(
-      backgroundColor: _kBgLight,
+      backgroundColor: AppColors.kBgLight,
       body: SafeArea(
         child: Column(
           children: [
-            // Header
+            // ── Header ──────────────────────────────────────
             Container(
-              color  : _kNavy,
+              color  : AppColors.kNavy,
               padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
               child  : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Row(
                     children: [
-                      const Expanded(
+                      Expanded(
                         child: Text('Rekap Presensi',
-                          style: TextStyle(
-                            color: Colors.white, fontSize: 20,
-                            fontWeight: FontWeight.bold)),
+                          style: AppTypography.hero.copyWith(fontSize: 20)),
                       ),
                       IconButton(
-                        icon: const Icon(Icons.refresh_rounded,
-                          color: Colors.white),
+                        icon     : const Icon(Icons.refresh_rounded, color: Colors.white),
                         onPressed: _fetchRiwayat,
                         tooltip  : 'Refresh'),
                     ],
@@ -149,10 +166,11 @@ class _RekapListScreenState extends State<RekapListScreen>
                   const SizedBox(height: 4),
                   Text(
                     '${_filteredSesi.length} sesi ditemukan',
-                    style: const TextStyle(color: Colors.white70, fontSize: 13)),
+                    style: AppTypography.heroSubtitle,
+                  ),
                   const SizedBox(height: 14),
 
-                  // Filter row
+                  // ── Filter row (Fase 8: tambah filter Kelas) ──
                   SingleChildScrollView(
                     scrollDirection: Axis.horizontal,
                     child: Row(
@@ -161,32 +179,34 @@ class _RekapListScreenState extends State<RekapListScreen>
                           label    : 'Matakuliah',
                           value    : _filterMk,
                           items    : ['semua', ..._mkList],
-                          onChanged: (v) {
-                            setState(() => _filterMk = v);
-                            _applyFilter();
-                          },
+                          onChanged: (v) { setState(() => _filterMk = v); _applyFilter(); },
                         ),
                         const SizedBox(width: 8),
+
+                        // [BARU Fase 8] Filter Kelas
+                        if (_kelasList.isNotEmpty) ...[
+                          _FilterChipDropdown(
+                            label    : 'Kelas',
+                            value    : _filterKelas,
+                            items    : ['semua', ..._kelasList],
+                            onChanged: (v) { setState(() => _filterKelas = v); _applyFilter(); },
+                          ),
+                          const SizedBox(width: 8),
+                        ],
+
+                        // [BARU Fase 8] Filter Mode (Offline/Online)
                         _FilterChipDropdown(
                           label    : 'Mode',
                           value    : _filterMode,
                           items    : ['semua', 'offline', 'online'],
-                          onChanged: (v) {
-                            setState(() => _filterMode = v);
-                            _applyFilter();
-                          },
+                          onChanged: (v) { setState(() => _filterMode = v); _applyFilter(); },
                         ),
                         const SizedBox(width: 8),
-                        if (_filterMk != 'semua' || _filterMode != 'semua')
+
+                        if (_hasActiveFilter)
                           GestureDetector(
-                            onTap: () {
-                              setState(() {
-                                _filterMk   = 'semua';
-                                _filterMode = 'semua';
-                              });
-                              _applyFilter();
-                            },
-                            child: Container(
+                            onTap : _resetFilter,
+                            child : Container(
                               padding: const EdgeInsets.symmetric(
                                 horizontal: 10, vertical: 6),
                               decoration: BoxDecoration(
@@ -213,7 +233,7 @@ class _RekapListScreenState extends State<RekapListScreen>
               ),
             ),
 
-            // Konten
+            // ── Konten ──────────────────────────────────────
             Expanded(
               child: _isLoading
                   ? _buildSkeleton()
@@ -223,7 +243,7 @@ class _RekapListScreenState extends State<RekapListScreen>
                           ? _buildEmpty()
                           : RefreshIndicator(
                               onRefresh: _fetchRiwayat,
-                              color    : _kNavy,
+                              color    : AppColors.kNavy,
                               child    : ListView.builder(
                                 padding    : const EdgeInsets.all(16),
                                 itemCount  : _filteredSesi.length,
@@ -257,7 +277,7 @@ class _RekapListScreenState extends State<RekapListScreen>
       itemCount  : 5,
       itemBuilder: (_, __) => Container(
         margin : const EdgeInsets.only(bottom: 10),
-        height : 110,
+        height : 130,
         decoration: BoxDecoration(
           color: Colors.grey.shade200,
           borderRadius: BorderRadius.circular(14)),
@@ -273,22 +293,25 @@ class _RekapListScreenState extends State<RekapListScreen>
         children: [
           Icon(Icons.error_outline, size: 56, color: Colors.grey.shade300),
           const SizedBox(height: 12),
-          const Text('Gagal memuat rekap',
-            style: TextStyle(
-              color: _kNavy, fontSize: 16,
-              fontWeight: FontWeight.bold)),
+          Text('Gagal memuat rekap',
+            style: AppTypography.heading3.copyWith(fontSize: 16)),
           const SizedBox(height: 8),
           Text(_errorMsg!,
             textAlign: TextAlign.center,
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+            style: AppTypography.body2),
           const SizedBox(height: 20),
-          ElevatedButton.icon(
-            onPressed: _fetchRiwayat,
-            icon : const Icon(Icons.refresh_rounded),
-            label: const Text('Coba Lagi'),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: _kNavy,
-              foregroundColor: Colors.white)),
+          SizedBox(
+            width: 140,
+            child: ElevatedButton.icon(
+              onPressed: _fetchRiwayat,
+              icon : const Icon(Icons.refresh_rounded, size: 16),
+              label: const Text('Coba Lagi'),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppColors.kNavy,
+                foregroundColor: Colors.white,
+                minimumSize: const Size(0, 44)),
+            ),
+          ),
         ],
       ),
     ),
@@ -300,23 +323,21 @@ class _RekapListScreenState extends State<RekapListScreen>
       children: [
         Icon(Icons.summarize_outlined, size: 72, color: Colors.grey.shade200),
         const SizedBox(height: 16),
-        const Text('Belum ada sesi',
-          style: TextStyle(
-            color: _kNavy, fontSize: 16,
-            fontWeight: FontWeight.bold)),
+        Text('Belum ada sesi',
+          style: AppTypography.heading3.copyWith(fontSize: 16)),
         const SizedBox(height: 8),
         Text(
-          _filterMk != 'semua' || _filterMode != 'semua'
+          _hasActiveFilter
               ? 'Tidak ada sesi yang cocok dengan filter'
               : 'Buka sesi dari tab Beranda untuk mulai mengajar',
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+          style: AppTypography.body2),
       ],
     ),
   );
 }
 
-// ── Filter chip dropdown (sama seperti sebelumnya) ────────────
+// ── Filter chip dropdown ──────────────────────────────────────
 class _FilterChipDropdown extends StatelessWidget {
   final String       label;
   final String       value;
@@ -349,14 +370,12 @@ class _FilterChipDropdown extends StatelessWidget {
                 Padding(
                   padding: const EdgeInsets.all(16),
                   child: Text('Filter $label',
-                    style: const TextStyle(
-                      color: _kNavy, fontSize: 16,
-                      fontWeight: FontWeight.bold))),
+                    style: AppTypography.heading3.copyWith(fontSize: 16))),
                 const Divider(height: 1),
                 ...items.map((item) => ListTile(
                   title: Text(_display(item)),
                   trailing: value == item
-                      ? const Icon(Icons.check_rounded, color: _kNavy)
+                      ? Icon(Icons.check_rounded, color: AppColors.kNavy)
                       : null,
                   onTap: () => Navigator.pop(ctx, item),
                 )),
@@ -376,7 +395,7 @@ class _FilterChipDropdown extends StatelessWidget {
               : Colors.white.withOpacity(0.15),
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
-            color: isActive ? _kNavy : Colors.white38,
+            color: isActive ? AppColors.kNavy : Colors.white38,
             width: isActive ? 1.5 : 1)),
         child: Row(
           mainAxisSize: MainAxisSize.min,
@@ -384,13 +403,12 @@ class _FilterChipDropdown extends StatelessWidget {
             Text(
               isActive ? _display(value) : label,
               style: TextStyle(
-                color: isActive ? _kNavy : Colors.white,
+                color: isActive ? AppColors.kNavy : Colors.white,
                 fontSize: 12,
-                fontWeight: isActive
-                    ? FontWeight.bold : FontWeight.normal)),
+                fontWeight: isActive ? FontWeight.bold : FontWeight.normal)),
             const SizedBox(width: 4),
             Icon(Icons.arrow_drop_down_rounded,
-              color: isActive ? _kNavy : Colors.white,
+              color: isActive ? AppColors.kNavy : Colors.white,
               size: 18),
           ],
         ),
@@ -399,7 +417,7 @@ class _FilterChipDropdown extends StatelessWidget {
   }
 }
 
-// ── Rekap List Card ───────────────────────────────────────────
+// ── Rekap List Card (Fase 8: badge kelas & mode) ──────────────
 class _RekapListCard extends StatelessWidget {
   final Map<String, dynamic>  sesi;
   final String Function(String?) formatWaktu;
@@ -415,22 +433,20 @@ class _RekapListCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final mk        = sesi['matakuliah']    as String? ?? '-';
-    final mode      = sesi['mode']          as String? ?? '-';
-    final pertemuan = sesi['pertemuan_ke']  as int?    ?? 0;
-    final status    = sesi['status']        as String? ?? '-';
-    final waktuBuka = sesi['waktu_buka']    as String?;
-    final total     = sesi['total_mhs']     as int?    ?? 0;
-    final hadir     = sesi['hadir']         as int?    ?? 0;
-    final terlambat = sesi['terlambat']     as int?    ?? 0;
-    final absen     = sesi['absen']         as int?    ?? 0;
-    final persentase= sesi['persentase']    as double? ?? 0.0;
-    final efektif   = hadir + terlambat;
+    final mk         = sesi['matakuliah']    as String? ?? '-';
+    final mode       = sesi['mode']          as String? ?? '-';
+    final kodeKelas  = sesi['kode_kelas']    as String? ?? ''; // [BARU Fase 8]
+    final pertemuan  = sesi['pertemuan_ke']  as int?    ?? 0;
+    final status     = sesi['status']        as String? ?? '-';
+    final waktuBuka  = sesi['waktu_buka']    as String?;
+    final total      = sesi['total_mhs']     as int?    ?? 0;
+    final hadir      = sesi['hadir']         as int?    ?? 0;
+    final terlambat  = sesi['terlambat']     as int?    ?? 0;
+    final absen      = sesi['absen']         as int?    ?? 0;
+    final persentase = sesi['persentase']    as double? ?? 0.0;
+    final efektif    = hadir + terlambat;
 
-    Color barColor;
-    if (persentase >= 75)      barColor = Colors.green.shade600;
-    else if (persentase >= 50) barColor = _kWarning;
-    else                       barColor = _kDanger;
+    final barColor = AppColors.persentaseColor(persentase);
 
     return Card(
       margin    : const EdgeInsets.only(bottom: 10),
@@ -445,13 +461,13 @@ class _RekapListCard extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // ── Baris 1: Nama MK + Status ──────────────────
               Row(
                 children: [
                   Expanded(
                     child: Text(mk,
-                      style: const TextStyle(
-                        color: _kNavy, fontSize: 14,
-                        fontWeight: FontWeight.bold),
+                      style: AppTypography.bodyBold.copyWith(
+                        color: AppColors.kNavyDark, fontSize: 14),
                       overflow: TextOverflow.ellipsis)),
                   const SizedBox(width: 8),
                   Container(
@@ -468,28 +484,35 @@ class _RekapListCard extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 6),
+              const SizedBox(height: 8),
+
+              // ── Baris 2: Badge Pertemuan + Kelas + Mode + Waktu ──
+              // [BARU Fase 8] Tambah KelasBadge & ModeBadge
               Row(
                 children: [
-                  _InfoBadge(
+                  _InfoBadgeLocal(
                     label: 'Pertemuan $pertemuan',
                     color: Colors.blue.shade700,
                     bg   : Colors.blue.shade50),
                   const SizedBox(width: 6),
-                  _InfoBadge(
-                    label: mode == 'online' ? '💻 Online' : '📍 Offline',
-                    color: mode == 'online'
-                        ? Colors.purple.shade700 : _kNavy,
-                    bg   : mode == 'online'
-                        ? Colors.purple.shade50
-                        : _kNavy.withOpacity(0.07)),
+
+                  // [BARU] Badge kelas
+                  if (kodeKelas.isNotEmpty) ...[
+                    KelasBadge(kodeKelas: kodeKelas),
+                    const SizedBox(width: 6),
+                  ],
+
+                  // [BARU] Badge mode
+                  ModeBadge(mode: mode, fontSize: 10),
+
                   const Spacer(),
                   Text(formatWaktu(waktuBuka),
-                    style: TextStyle(
-                      color: Colors.grey.shade400, fontSize: 11)),
+                    style: AppTypography.caption),
                 ],
               ),
               const SizedBox(height: 10),
+
+              // ── Progress bar ────────────────────────────────
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
                 child: LinearProgressIndicator(
@@ -498,16 +521,18 @@ class _RekapListCard extends StatelessWidget {
                   valueColor     : AlwaysStoppedAnimation<Color>(barColor),
                   minHeight      : 6)),
               const SizedBox(height: 8),
+
+              // ── Statistik ───────────────────────────────────
               Row(
                 children: [
-                  _StatBadge(value: hadir,    label: 'Hadir',
-                    color: Colors.green.shade600),
+                  _StatBadgeLocal(value: hadir,    label: 'Hadir',
+                    color: AppColors.kStatusHadir),
                   const SizedBox(width: 8),
-                  _StatBadge(value: terlambat, label: 'Terlambat',
-                    color: _kWarning),
+                  _StatBadgeLocal(value: terlambat, label: 'Terlambat',
+                    color: AppColors.kStatusTerlambat),
                   const SizedBox(width: 8),
-                  _StatBadge(value: absen,    label: 'Absen',
-                    color: _kDanger),
+                  _StatBadgeLocal(value: absen,    label: 'Absen',
+                    color: AppColors.kStatusAbsen),
                   const Spacer(),
                   Text(
                     '${persentase.toStringAsFixed(0)}%',
@@ -515,8 +540,7 @@ class _RekapListCard extends StatelessWidget {
                       color: barColor, fontSize: 16,
                       fontWeight: FontWeight.bold)),
                   Text(' /$total',
-                    style: TextStyle(
-                      color: Colors.grey.shade400, fontSize: 12)),
+                    style: AppTypography.caption),
                 ],
               ),
             ],
@@ -527,12 +551,12 @@ class _RekapListCard extends StatelessWidget {
   }
 }
 
-class _InfoBadge extends StatelessWidget {
+class _InfoBadgeLocal extends StatelessWidget {
   final String label;
   final Color  color;
   final Color  bg;
 
-  const _InfoBadge({required this.label, required this.color, required this.bg});
+  const _InfoBadgeLocal({required this.label, required this.color, required this.bg});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -545,12 +569,12 @@ class _InfoBadge extends StatelessWidget {
   );
 }
 
-class _StatBadge extends StatelessWidget {
+class _StatBadgeLocal extends StatelessWidget {
   final int    value;
   final String label;
   final Color  color;
 
-  const _StatBadge({required this.value, required this.label, required this.color});
+  const _StatBadgeLocal({required this.value, required this.label, required this.color});
 
   @override
   Widget build(BuildContext context) => Row(
@@ -561,13 +585,13 @@ class _StatBadge extends StatelessWidget {
           fontWeight: FontWeight.bold)),
       const SizedBox(width: 3),
       Text(label,
-        style: TextStyle(color: Colors.grey.shade500, fontSize: 11)),
+        style: AppTypography.caption),
     ],
   );
 }
 
 // ══════════════════════════════════════════════════════════════
-// REKAP SCREEN — Detail satu sesi (FASE 6: ekspor fungsional)
+// REKAP SCREEN — Detail satu sesi (FASE 8: fix ekspor + kelas/mode)
 // ══════════════════════════════════════════════════════════════
 
 class RekapScreen extends StatefulWidget {
@@ -582,7 +606,7 @@ class _RekapScreenState extends State<RekapScreen> {
   bool    _isLoading   = true;
   bool    _isExporting = false;
   String? _errorMsg;
-  String? _eksporStatus; // pesan progress ekspor
+  String? _eksporStatus;
 
   Map<String, dynamic>       _sesiInfo  = {};
   Map<String, dynamic>       _statistik = {};
@@ -614,10 +638,12 @@ class _RekapScreenState extends State<RekapScreen> {
     }
   }
 
-  // ── Ekspor Excel — download file ke device ────────────────
+  // ── Ekspor Excel — FASE 8 FIX ────────────────────────────
+  // Menggunakan getTemporaryDirectory() untuk kompatibilitas iOS
+  // Share via Share.shareXFiles (share_plus)
   Future<void> _eksporExcel() async {
     setState(() {
-      _isExporting = true;
+      _isExporting  = true;
       _eksporStatus = 'Menyiapkan file...';
     });
 
@@ -638,64 +664,58 @@ class _RekapScreenState extends State<RekapScreen> {
       if (response.statusCode == 200) {
         setState(() => _eksporStatus = 'Menyimpan file...');
 
-        // Ambil nama file
-        final cd = response.headers['content-disposition'] ?? '';
+        // Ambil nama file dari header
+        final cd    = response.headers['content-disposition'] ?? '';
         final match = RegExp(r'filename="?([^"]+)"?').firstMatch(cd);
-
         final fileName = match?.group(1) ??
             'rekap_${DateTime.now().millisecondsSinceEpoch}.xlsx';
 
-        // 📌 SIMPAN KE APP STORAGE (AMAN)
-        final dir = Platform.isAndroid
-            ? await getExternalStorageDirectory()
-            : await getApplicationDocumentsDirectory();
-
-        final filePath = '${dir!.path}/$fileName';
-        final file = File(filePath);
+        // ✅ FASE 8 FIX: getTemporaryDirectory() — bekerja di Android & iOS
+        final dir      = await getTemporaryDirectory();
+        final filePath = '${dir.path}/$fileName';
+        final file     = File(filePath);
 
         await file.writeAsBytes(response.bodyBytes);
 
         setState(() {
-          _isExporting = false;
+          _isExporting  = false;
           _eksporStatus = null;
         });
 
-        // 📌 SHARE FILE (WAJIB untuk iOS, bagus untuk Android)
+        // ✅ FASE 8 FIX: Share.shareXFiles untuk Android & iOS
+        final mk        = _sesiInfo['matakuliah']   as String? ?? 'Rekap';
+        final kodeKelas = _sesiInfo['kode_kelas']   as String? ?? '';
+        final pertemuan = _sesiInfo['pertemuan_ke'] as int?    ?? 0;
+
+        final shareText = [
+          'Rekap Presensi — $mk',
+          if (kodeKelas.isNotEmpty) 'Kelas $kodeKelas',
+          'Pertemuan $pertemuan',
+        ].join(' · ');
+
         await Share.shareXFiles(
           [XFile(filePath)],
-          text: 'Rekap presensi',
+          text   : shareText,
+          subject: shareText,
         );
+
       } else {
         throw Exception('Server error: ${response.statusCode}');
       }
     } catch (e) {
       setState(() {
-        _isExporting = false;
+        _isExporting  = false;
         _eksporStatus = null;
       });
-
-      if (mounted) {
-        _showSnack('❌ Gagal ekspor: $e', isError: true);
-      }
+      if (mounted) _showSnack('❌ Gagal ekspor: $e', isError: true);
     }
   }
 
-
-  Future<void> _bukaFile(String path) async {
-    // Coba buka file — kalau tidak bisa (tidak ada app), tampilkan path
-    try {
-      // Gunakan openFile dari package open_file jika tersedia
-      // Fallback: tampilkan snackbar dengan path
-      _showSnack('File: $path');
-    } catch (e) {
-      _showSnack('File disimpan di: $path');
-    }
-  }
-
-  // ── Show ekspor sheet ─────────────────────────────────────
+  // ── Show ekspor sheet ────────────────────────────────────
   void _showEksporSheet() {
-    final mk        = _sesiInfo['matakuliah']    as String? ?? '-';
-    final pertemuan = _sesiInfo['pertemuan_ke']  as int?    ?? 0;
+    final mk        = _sesiInfo['matakuliah']   as String? ?? '-';
+    final pertemuan = _sesiInfo['pertemuan_ke'] as int?    ?? 0;
+    final kodeKelas = _sesiInfo['kode_kelas']   as String? ?? ''; // [BARU]
 
     showModalBottomSheet(
       context: context,
@@ -719,21 +739,32 @@ class _RekapScreenState extends State<RekapScreen> {
                   borderRadius: BorderRadius.circular(2))),
             ),
             const SizedBox(height: 16),
-            const Text('Ekspor Rekap',
-              style: TextStyle(
-                color: _kNavy, fontSize: 17,
-                fontWeight: FontWeight.bold)),
+            Text('Ekspor Rekap',
+              style: AppTypography.heading3),
             const SizedBox(height: 4),
-            Text('$mk · Pertemuan $pertemuan',
-              style: TextStyle(color: Colors.grey.shade500, fontSize: 13)),
+            // [BARU Fase 8] Tampilkan info kelas di subtitle
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '$mk · Pertemuan $pertemuan',
+                    style: AppTypography.body2,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (kodeKelas.isNotEmpty) ...[
+                  const SizedBox(width: 8),
+                  KelasBadge(kodeKelas: kodeKelas),
+                ],
+              ],
+            ),
             const SizedBox(height: 20),
 
-            // Ekspor Excel
             _EksporOptionTile(
               icon : Icons.table_chart_rounded,
               color: Colors.green.shade700,
               label: 'Ekspor Excel (.xlsx)',
-              sub  : 'Download file rekap ke perangkat',
+              sub  : 'Download & bagikan file rekap via WhatsApp, email, dll.',
               onTap: () {
                 Navigator.pop(ctx);
                 _eksporExcel();
@@ -745,14 +776,14 @@ class _RekapScreenState extends State<RekapScreen> {
     );
   }
 
-  // ── Helpers ───────────────────────────────────────────────
+  // ── Helpers ──────────────────────────────────────────────
   Color _statusColor(String status) {
     switch (status) {
-      case 'hadir'    : return Colors.green.shade600;
-      case 'terlambat': return _kWarning;
-      case 'absen'    : return _kDanger;
-      case 'izin'     : return Colors.blue.shade600;
-      case 'sakit'    : return Colors.purple.shade600;
+      case 'hadir'    : return AppColors.kStatusHadir;
+      case 'terlambat': return AppColors.kStatusTerlambat;
+      case 'absen'    : return AppColors.kStatusAbsen;
+      case 'izin'     : return AppColors.kStatusIzin;
+      case 'sakit'    : return AppColors.kStatusSakit;
       default         : return Colors.grey;
     }
   }
@@ -771,36 +802,18 @@ class _RekapScreenState extends State<RekapScreen> {
     if (!mounted) return;
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(
       content        : Text(msg),
-      backgroundColor: isError ? _kDanger : Colors.green.shade700,
+      backgroundColor: isError ? AppColors.kStatusAbsen : AppColors.kGreen,
       behavior       : SnackBarBehavior.floating,
       duration       : const Duration(seconds: 4),
-    ));
-  }
-
-  void _showSnackWithAction(
-    String msg, {
-    required String    actionLabel,
-    required VoidCallback onAction,
-  }) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      backgroundColor: Colors.green.shade700,
-      behavior: SnackBarBehavior.floating,
-      duration: const Duration(seconds: 6),
-      action: SnackBarAction(
-        label    : actionLabel,
-        textColor: Colors.white,
-        onPressed: onAction),
     ));
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      backgroundColor: _kBgLight,
+      backgroundColor: AppColors.kBgLight,
       appBar: AppBar(
-        backgroundColor: _kNavy,
+        backgroundColor: AppColors.kNavy,
         foregroundColor: Colors.white,
         title          : const Text('Rekap Presensi'),
         elevation      : 0,
@@ -815,11 +828,11 @@ class _RekapScreenState extends State<RekapScreen> {
           },
         ),
         actions: [
-          // Progress ekspor
+          // ── Progress ekspor (Fase 8: lebih informatif) ───
           if (_isExporting)
             Center(
               child: Padding(
-                padding: const EdgeInsets.only(right: 8),
+                padding: const EdgeInsets.only(right: 12),
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -828,7 +841,8 @@ class _RekapScreenState extends State<RekapScreen> {
                       child: CircularProgressIndicator(
                         color: Colors.white, strokeWidth: 2)),
                     const SizedBox(width: 6),
-                    Text(_eksporStatus ?? '...',
+                    Text(
+                      _eksporStatus ?? '...',
                       style: const TextStyle(
                         color: Colors.white70, fontSize: 11)),
                   ],
@@ -877,14 +891,17 @@ class _RekapScreenState extends State<RekapScreen> {
         const SizedBox(height: 12),
         Text(_errorMsg!,
           textAlign: TextAlign.center,
-          style: TextStyle(color: Colors.grey.shade600)),
+          style: AppTypography.body2),
         const SizedBox(height: 16),
-        ElevatedButton(
-          onPressed: _fetchRekap,
-          style: ElevatedButton.styleFrom(
-            backgroundColor: _kNavy,
-            foregroundColor: Colors.white),
-          child: const Text('Coba Lagi')),
+        SizedBox(
+          width: 140,
+          child: ElevatedButton(
+            onPressed: _fetchRekap,
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppColors.kNavy,
+              foregroundColor: Colors.white),
+            child: const Text('Coba Lagi')),
+        ),
       ],
     ),
   );
@@ -893,6 +910,8 @@ class _RekapScreenState extends State<RekapScreen> {
     final mk        = _sesiInfo['matakuliah']    as String? ?? '-';
     final pertemuan = _sesiInfo['pertemuan_ke']  as int?    ?? 0;
     final mode      = _sesiInfo['mode']          as String? ?? '-';
+    final kodeKelas = _sesiInfo['kode_kelas']    as String? ?? ''; // [BARU]
+    final dosenNama = _sesiInfo['dosen_nama']    as String? ?? '';  // [BARU]
     final waktuBuka = _sesiInfo['waktu_buka']    as String?;
     final waktuTutup= _sesiInfo['waktu_tutup']   as String?;
 
@@ -904,55 +923,64 @@ class _RekapScreenState extends State<RekapScreen> {
     final total     = _statistik['total']      as int?    ?? 0;
     final persen    = _statistik['persentase'] as double? ?? 0.0;
 
-    Color barColor;
-    if (persen >= 75)      barColor = Colors.green.shade600;
-    else if (persen >= 50) barColor = _kWarning;
-    else                   barColor = _kDanger;
+    final barColor = AppColors.persentaseColor(persen);
 
     return RefreshIndicator(
       onRefresh: _fetchRekap,
       child: CustomScrollView(
         slivers: [
-          // Info sesi
+          // ── Header info sesi (Fase 8: kelas & mode) ──────
           SliverToBoxAdapter(
             child: Container(
-              color  : _kNavy,
+              color  : AppColors.kNavy,
               padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
               child  : Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(mk,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold, fontSize: 17)),
-                  const SizedBox(height: 6),
+                    style: AppTypography.hero.copyWith(fontSize: 17)),
+                  const SizedBox(height: 8),
+
+                  // [BARU Fase 8] Row badge: Pertemuan + Kelas + Mode
                   Wrap(
                     spacing: 8,
+                    runSpacing: 6,
                     children: [
-                      _InfoBadge(
-                        label: 'Pertemuan $pertemuan',
-                        color: Colors.white,
-                        bg   : Colors.white.withOpacity(0.2)),
-                      _InfoBadge(
-                        label: mode == 'online' ? '💻 Online' : '📍 Offline',
-                        color: Colors.white,
-                        bg   : Colors.white.withOpacity(0.2)),
+                      _HeaderBadge(label: 'Pertemuan $pertemuan'),
+                      if (kodeKelas.isNotEmpty)
+                        _HeaderBadge(label: 'Kelas $kodeKelas'),
+                      _HeaderBadge(
+                        label: mode == 'online' ? '💻 Online' : '📍 Tatap Muka'),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  if (waktuBuka != null)
+
+                  // [BARU Fase 8] Tampilkan nama dosen
+                  if (dosenNama.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Row(
+                      children: [
+                        const Icon(Icons.person_outline,
+                          color: Colors.white60, size: 14),
+                        const SizedBox(width: 4),
+                        Text(dosenNama,
+                          style: AppTypography.heroSubtitle),
+                      ],
+                    ),
+                  ],
+
+                  if (waktuBuka != null) ...[
+                    const SizedBox(height: 6),
                     Text(
                       '📅 ${_formatWaktu(waktuBuka)}'
                       '${waktuTutup != null ? "  →  ${_formatWaktu(waktuTutup)}" : "  (masih aktif)"}',
-                      style: TextStyle(
-                        color: Colors.white.withOpacity(0.7),
-                        fontSize: 12)),
+                      style: AppTypography.heroSubtitle),
+                  ],
                 ],
               ),
             ),
           ),
 
-          // Statistik
+          // ── Statistik ────────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.all(16),
@@ -974,10 +1002,9 @@ class _RekapScreenState extends State<RekapScreen> {
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            const Text('Persentase Kehadiran',
-                              style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                fontSize: 14, color: _kNavy)),
+                            Text('Persentase Kehadiran',
+                              style: AppTypography.bodyBold.copyWith(
+                                fontSize: 14, color: AppColors.kNavyDark)),
                             Text(
                               '${persen.toStringAsFixed(1)}%',
                               style: TextStyle(
@@ -995,24 +1022,22 @@ class _RekapScreenState extends State<RekapScreen> {
                             valueColor     : AlwaysStoppedAnimation<Color>(barColor),
                             minHeight      : 10)),
                         const SizedBox(height: 10),
-                        // Legend
                         Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            _LegendDot(color: Colors.green.shade600,
+                            _LegendDot(color: AppColors.kStatusHadir,
                               label: 'Hadir ($hadir)'),
                             const SizedBox(width: 12),
-                            _LegendDot(color: _kWarning,
+                            _LegendDot(color: AppColors.kStatusTerlambat,
                               label: 'Terlambat ($terlambat)'),
                             const SizedBox(width: 12),
-                            _LegendDot(color: _kDanger,
+                            _LegendDot(color: AppColors.kStatusAbsen,
                               label: 'Absen ($absen)'),
                           ],
                         ),
                         const SizedBox(height: 6),
                         Text('Total $total mahasiswa terdaftar',
-                          style: TextStyle(
-                            color: Colors.grey.shade500, fontSize: 12)),
+                          style: AppTypography.caption),
                       ],
                     ),
                   ),
@@ -1028,17 +1053,17 @@ class _RekapScreenState extends State<RekapScreen> {
                     childAspectRatio: 1.4,
                     children: [
                       _StatMini(label: 'Hadir',    value: hadir,
-                        color: Colors.green.shade600),
+                        color: AppColors.kStatusHadir),
                       _StatMini(label: 'Terlambat', value: terlambat,
-                        color: _kWarning),
+                        color: AppColors.kStatusTerlambat),
                       _StatMini(label: 'Absen',    value: absen,
-                        color: _kDanger),
+                        color: AppColors.kStatusAbsen),
                       _StatMini(label: 'Izin',     value: izin,
-                        color: Colors.blue.shade600),
+                        color: AppColors.kStatusIzin),
                       _StatMini(label: 'Sakit',    value: sakit,
-                        color: Colors.purple.shade600),
+                        color: AppColors.kStatusSakit),
                       _StatMini(label: 'Total',    value: total,
-                        color: Colors.grey.shade600),
+                        color: AppColors.kTextSecondary),
                     ],
                   ),
                 ],
@@ -1046,33 +1071,30 @@ class _RekapScreenState extends State<RekapScreen> {
             ),
           ),
 
-          // Header detail
+          // ── Header detail ────────────────────────────────
           SliverToBoxAdapter(
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
               child: Row(
                 children: [
-                  const Text('Detail Kehadiran',
-                    style: TextStyle(
-                      fontWeight: FontWeight.bold,
-                      fontSize: 15, color: _kNavy)),
+                  Text('Detail Kehadiran',
+                    style: AppTypography.sectionTitle),
                   const Spacer(),
                   Text('${_detail.length} mahasiswa',
-                    style: TextStyle(
-                      color: Colors.grey.shade500, fontSize: 13)),
+                    style: AppTypography.caption),
                 ],
               ),
             ),
           ),
 
-          // List detail
+          // ── List detail mahasiswa ────────────────────────
           _detail.isEmpty
               ? SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.all(32),
                     child: Center(
                       child: Text('Belum ada data presensi',
-                        style: TextStyle(color: Colors.grey.shade400))),
+                        style: AppTypography.body2)),
                   ),
                 )
               : SliverList(
@@ -1103,14 +1125,13 @@ class _RekapScreenState extends State<RekapScreen> {
                               Container(
                                 width: 30, height: 30,
                                 decoration: BoxDecoration(
-                                  color: Colors.grey.shade100,
+                                  color: AppColors.kSoftGray,
                                   shape: BoxShape.circle),
                                 child: Center(
                                   child: Text('${i + 1}',
-                                    style: const TextStyle(
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.bold,
-                                      color: _kNavy)))),
+                                    style: AppTypography.badge.copyWith(
+                                      color: AppColors.kNavy,
+                                      fontSize: 12)))),
                               const SizedBox(width: 10),
 
                               Expanded(
@@ -1121,61 +1142,41 @@ class _RekapScreenState extends State<RekapScreen> {
                                       children: [
                                         Expanded(
                                           child: Text(nama,
-                                            style: const TextStyle(
-                                              fontWeight: FontWeight.bold,
+                                            style: AppTypography.bodyBold.copyWith(
                                               fontSize: 13),
                                             overflow: TextOverflow.ellipsis)),
                                         if (isTamu) ...[
                                           const SizedBox(width: 6),
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                              horizontal: 5, vertical: 1),
-                                            decoration: BoxDecoration(
-                                              color: Colors.orange.shade50,
-                                              borderRadius: BorderRadius.circular(4),
-                                              border: Border.all(
-                                                color: Colors.orange.shade200)),
-                                            child: Text('Tamu',
-                                              style: TextStyle(
-                                                color: Colors.orange.shade700,
-                                                fontSize: 9,
-                                                fontWeight: FontWeight.bold))),
+                                          const TamuBadge(),
                                         ],
                                       ],
                                     ),
-                                    Text(nim,
-                                      style: TextStyle(
-                                        color: Colors.grey.shade500,
-                                        fontSize: 11)),
+                                    Text(nim, style: AppTypography.caption),
                                     if (isTamu && kelasAsal != null)
                                       Text('dari $kelasAsal',
-                                        style: TextStyle(
-                                          color: Colors.orange.shade600,
-                                          fontSize: 10)),
+                                        style: AppTypography.caption.copyWith(
+                                          color: AppColors.kWarning)),
                                     if (waktu != null)
                                       Row(
                                         children: [
                                           Text(_formatWaktu(waktu),
-                                            style: TextStyle(
-                                              color: Colors.grey.shade500,
-                                              fontSize: 10)),
+                                            style: AppTypography.caption),
                                           if (akurasi != null) ...[
                                             const SizedBox(width: 6),
                                             Text('${akurasi.toStringAsFixed(1)}%',
-                                              style: TextStyle(
-                                                color: Colors.grey.shade500,
-                                                fontSize: 10)),
+                                              style: AppTypography.caption),
                                           ],
                                           const SizedBox(width: 6),
-                                          Text(modeK == 'online' ? '💻' : '📍',
-                                            style: const TextStyle(fontSize: 10)),
+                                          // [BARU Fase 8] ModeBadge kecil
+                                          if (modeK.isNotEmpty)
+                                            ModeBadge(mode: modeK,
+                                              fontSize: 9, showIcon: false),
                                         ],
                                       ),
                                     if (catatan != null && catatan.isNotEmpty)
                                       Text('📝 $catatan',
-                                        style: TextStyle(
-                                          color: Colors.blue.shade600,
-                                          fontSize: 10)),
+                                        style: AppTypography.caption.copyWith(
+                                          color: AppColors.kInfo)),
                                   ],
                                 ),
                               ),
@@ -1209,7 +1210,28 @@ class _RekapScreenState extends State<RekapScreen> {
   }
 }
 
-// ── Stat Mini Widget ──────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════
+// WIDGET HELPERS
+// ══════════════════════════════════════════════════════════════
+
+/// Badge putih transparan untuk header AppBar (info sesi)
+class _HeaderBadge extends StatelessWidget {
+  final String label;
+  const _HeaderBadge({required this.label});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+    decoration: BoxDecoration(
+      color: Colors.white.withOpacity(0.18),
+      borderRadius: BorderRadius.circular(20)),
+    child: Text(label,
+      style: const TextStyle(
+        color: Colors.white, fontSize: 12,
+        fontWeight: FontWeight.w600)),
+  );
+}
+
 class _StatMini extends StatelessWidget {
   final String label;
   final int    value;
@@ -1240,14 +1262,12 @@ class _StatMini extends StatelessWidget {
             fontWeight: FontWeight.bold,
             fontSize: 22, color: color)),
         Text(label,
-          style: TextStyle(
-            color: Colors.grey.shade500, fontSize: 11)),
+          style: AppTypography.caption),
       ],
     ),
   );
 }
 
-// ── Legend dot ────────────────────────────────────────────────
 class _LegendDot extends StatelessWidget {
   final Color  color;
   final String label;
@@ -1261,12 +1281,11 @@ class _LegendDot extends StatelessWidget {
         width: 8, height: 8,
         decoration: BoxDecoration(color: color, shape: BoxShape.circle)),
       const SizedBox(width: 4),
-      Text(label, style: TextStyle(color: Colors.grey.shade600, fontSize: 11)),
+      Text(label, style: AppTypography.caption),
     ],
   );
 }
 
-// ── Ekspor option tile ────────────────────────────────────────
 class _EksporOptionTile extends StatelessWidget {
   final IconData icon;
   final Color    color;
@@ -1310,8 +1329,7 @@ class _EksporOptionTile extends StatelessWidget {
                     color: color, fontWeight: FontWeight.bold,
                     fontSize: 14)),
                 Text(sub,
-                  style: TextStyle(
-                    color: Colors.grey.shade500, fontSize: 12)),
+                  style: AppTypography.caption),
               ],
             ),
           ),
@@ -1321,4 +1339,35 @@ class _EksporOptionTile extends StatelessWidget {
       ),
     ),
   );
+}
+
+/// Badge tamu — diambil dari mode_badge.dart (re-export lokal agar file standalone)
+class TamuBadge extends StatelessWidget {
+  const TamuBadge({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+      decoration: BoxDecoration(
+        color       : AppColors.kWarning.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(20),
+        border      : Border.all(
+          color: AppColors.kWarning.withOpacity(0.40), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.person_add_outlined,
+              size: 10, color: AppColors.kWarning),
+          const SizedBox(width: 3),
+          Text('Tamu',
+            style: AppTypography.badge.copyWith(
+              color   : AppColors.kWarning,
+              fontSize: 10,
+            )),
+        ],
+      ),
+    );
+  }
 }
