@@ -1,5 +1,7 @@
 // lib/screens/profil_screen.dart
-// v2.1.0 — Fase 4.1:
+// v2.1.0 — Fase 4.1 + BUGFIX:
+//   ✅ FIX: Defensive parsing /program-studi/aktif (handle List, Map{data:[]}, error)
+//   ✅ FIX: resizeToAvoidBottomInset sudah di parent Scaffold, tidak perlu di sini
 //   - Prodi terstruktur dari GET /program-studi/aktif
 //   - Card "Matakuliah Saya" → /mahasiswa/matakuliah
 //   - Panggil FcmService().updateToken() saat profil dimuat
@@ -106,41 +108,65 @@ class _ProfilScreenState extends State<ProfilScreen>
   }
 
   // ── Fetch profil + prodi sekaligus ────────────────────────
-
   Future<void> _fetchAll() async {
     setState(() { _isLoading = true; _error = null; });
     try {
-      // Fetch profil + program studi secara paralel
-      final results = await Future.wait([
-        ApiClient().get('/auth/me'),
-        ApiClient().get('/program-studi/aktif'),
-      ]);
-
+      // Fetch profil dulu (wajib berhasil)
+      final profilResponse = await ApiClient().get('/auth/me');
       if (!mounted) return;
 
-      // Parse profil
-      final profilData = jsonDecode(results[0].body) as Map<String, dynamic>;
-      final profil     = UserProfileModel.fromJson(profilData);
+      final profilData = jsonDecode(profilResponse.body) as Map<String, dynamic>;
+      final profil = UserProfileModel.fromJson(profilData);
 
-      // Parse prodi — cari yang cocok dengan programStudiId user
+      // Fetch prodi — optional, jangan crash jika gagal
       ProgramStudiModel? prodiMatch;
-      if (results[1].statusCode == 200) {
-        final prodiList = (jsonDecode(results[1].body) as List<dynamic>)
-            .map((e) => ProgramStudiModel.fromJson(e as Map<String, dynamic>))
-            .toList();
-        if (profil.programStudiId != null) {
-          prodiMatch = prodiList.cast<ProgramStudiModel?>().firstWhere(
-            (p) => p?.id == profil.programStudiId,
-            orElse: () => null,
-          );
+      try {
+        final prodiResponse = await ApiClient().get('/program-studi/aktif');
+        if (prodiResponse.statusCode == 200) {
+          // ✅ FIX: Defensive parsing — handle berbagai format response
+          // Backend bisa return: List[], Map{data:[]}, Map{program_studi:[]}, dll.
+          final decoded = jsonDecode(prodiResponse.body);
+          List<dynamic> prodiRaw;
+
+          if (decoded is List) {
+            // Format langsung: [{"id":...}, ...]
+            prodiRaw = decoded;
+          } else if (decoded is Map<String, dynamic>) {
+            // Format wrapped: {"data": [...]} atau {"program_studi": [...]}
+            prodiRaw = (decoded['data']
+                     ?? decoded['program_studi']
+                     ?? decoded['items']
+                     ?? decoded['results']
+                     ?? <dynamic>[]) as List<dynamic>;
+          } else {
+            prodiRaw = [];
+          }
+
+          final prodiList = prodiRaw
+              .whereType<Map<String, dynamic>>()
+              .map((e) => ProgramStudiModel.fromJson(e))
+              .toList();
+
+          if (profil.programStudiId != null) {
+            prodiMatch = prodiList.cast<ProgramStudiModel?>().firstWhere(
+              (p) => p?.id == profil.programStudiId,
+              orElse: () => null,
+            );
+          }
+          // Fallback: cocokkan berdasarkan nama prodi string lama
+          if (prodiMatch == null && profil.programStudi.isNotEmpty) {
+            prodiMatch = prodiList.cast<ProgramStudiModel?>().firstWhere(
+              (p) => p?.nama.toLowerCase() == profil.programStudi.toLowerCase(),
+              orElse: () => null,
+            );
+          }
         }
-        // Fallback: cocokkan berdasarkan nama prodi string lama
-        prodiMatch ??= prodiList.cast<ProgramStudiModel?>().firstWhere(
-          (p) => p?.nama.toLowerCase() == profil.programStudi.toLowerCase(),
-          orElse: () => null,
-        );
+      } catch (_) {
+        // Prodi gagal dimuat — tidak apa-apa, gunakan string fallback
+        prodiMatch = null;
       }
 
+      if (!mounted) return;
       setState(() {
         _profil       = profil;
         _programStudi = prodiMatch;
@@ -152,12 +178,14 @@ class _ProfilScreenState extends State<ProfilScreen>
 
     } catch (e) {
       if (!mounted) return;
-      setState(() { _error = e.toString(); _isLoading = false; });
+      setState(() {
+        _error     = e.toString();
+        _isLoading = false;
+      });
     }
   }
 
   // ── Logout ────────────────────────────────────────────────
-
   Future<void> _handleLogout() async {
     final konfirmasi = await showDialog<bool>(
       context: context,
@@ -183,7 +211,6 @@ class _ProfilScreenState extends State<ProfilScreen>
   }
 
   // ── Navigasi ke update wajah ──────────────────────────────
-
   void _goToUpdateWajah() {
     if (_profil?.isFaceRegistered == true) {
       _showDialogUpdateWajah();
@@ -239,6 +266,8 @@ class _ProfilScreenState extends State<ProfilScreen>
     super.build(context);
     return Scaffold(
       backgroundColor: AppColors.kBgLight,
+      // ✅ FIX: Prevent bottom overflow saat keyboard muncul
+      resizeToAvoidBottomInset: false,
       body: _isLoading
           ? const _LoadingView()
           : _error != null

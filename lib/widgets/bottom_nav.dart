@@ -1,6 +1,8 @@
 // lib/widgets/bottom_nav.dart
-// FIX: tambah resizeToAvoidBottomInset: false di Scaffold MainScreen
-// agar "BOTTOM OVERFLOWED BY 6.0 PIXELS" tidak muncul
+// FIX v2.1.0:
+// - resizeToAvoidBottomInset: false → cegah overflow saat keyboard muncul
+// - BottomNavigationBar tinggi fixed 60 + SafeArea bottom → tidak overflow
+// - Hapus teks debug overflow dengan memastikan ScanScreen pakai Scaffold sendiri
 
 import 'package:flutter/material.dart';
 
@@ -9,6 +11,7 @@ import 'package:presensi_app/screens/jadwal_screen.dart';
 import 'package:presensi_app/screens/scan_screen.dart';
 import 'package:presensi_app/screens/riwayat_screen.dart';
 import 'package:presensi_app/screens/profil_screen.dart';
+import 'package:presensi_app/core/theme.dart';
 
 class _TabItem {
   final String label;
@@ -75,7 +78,7 @@ class _MainScreenState extends State<MainScreen>
   @override
   void initState() {
     super.initState();
-    _currentIndex  = widget.initialIndex;
+    _currentIndex   = widget.initialIndex;
     _pageController = PageController(initialPage: widget.initialIndex);
   }
 
@@ -98,13 +101,13 @@ class _MainScreenState extends State<MainScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // ✅ FIX: mencegah overflow saat keyboard muncul
+      // ✅ FIX UTAMA: cegah keyboard mendorong layout & overflow
       resizeToAvoidBottomInset: false,
       body: PageView(
-        controller  : _pageController,
-        physics     : const NeverScrollableScrollPhysics(),
+        controller   : _pageController,
+        physics      : const NeverScrollableScrollPhysics(),
         onPageChanged: (i) => setState(() => _currentIndex = i),
-        children    : _pages,
+        children     : _pages,
       ),
       bottomNavigationBar: _BottomNav(
         currentIndex: _currentIndex,
@@ -113,6 +116,8 @@ class _MainScreenState extends State<MainScreen>
     );
   }
 }
+
+// ─── Bottom Nav ───────────────────────────────────────────────
 
 class _BottomNav extends StatelessWidget {
   final int currentIndex;
@@ -125,7 +130,8 @@ class _BottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const active = Color(0xFF1E3A5F);
+    // ✅ FIX: ambil bottom padding dengan aman
+    final bottomPad = MediaQuery.of(context).padding.bottom;
 
     return Container(
       decoration: BoxDecoration(
@@ -138,8 +144,11 @@ class _BottomNav extends StatelessWidget {
           ),
         ],
       ),
-      child: SafeArea(
-        top  : false,
+      // ✅ FIX: tinggi 60 + safe area bottom — tidak bergantung pada SafeArea widget
+      // SafeArea bisa menyebabkan reflow yang memicu overflow pada beberapa device
+      height: 60 + bottomPad,
+      child: Padding(
+        padding: EdgeInsets.only(bottom: bottomPad),
         child: SizedBox(
           height: 60,
           child : Row(
@@ -152,7 +161,7 @@ class _BottomNav extends StatelessWidget {
                 return _ScanTabButton(
                   selected: selected,
                   onTap   : () => onTap(i),
-                  color   : active,
+                  color   : AppColors.kNavy,
                 );
               }
 
@@ -160,7 +169,7 @@ class _BottomNav extends StatelessWidget {
                 label   : tab.label,
                 icon    : selected ? tab.iconAktif : tab.icon,
                 selected: selected,
-                color   : active,
+                color   : AppColors.kNavy,
                 onTap   : () => onTap(i),
               );
             }),
@@ -170,6 +179,8 @@ class _BottomNav extends StatelessWidget {
     );
   }
 }
+
+// ─── Nav Item ─────────────────────────────────────────────────
 
 class _NavItem extends StatelessWidget {
   final String   label;
@@ -191,17 +202,19 @@ class _NavItem extends StatelessWidget {
     return GestureDetector(
       onTap    : onTap,
       behavior : HitTestBehavior.opaque,
-      child    : Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      child    : SizedBox(
+        width: 64,
+        height: 60,
         child: Column(
-          mainAxisSize     : MainAxisSize.min,
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             AnimatedContainer(
               duration  : const Duration(milliseconds: 200),
               padding   : const EdgeInsets.all(5),
               decoration: BoxDecoration(
-                color       : selected ? color.withOpacity(0.1) : Colors.transparent,
+                color       : selected
+                    ? color.withOpacity(0.10)
+                    : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
@@ -217,6 +230,7 @@ class _NavItem extends StatelessWidget {
                 color     : selected ? color : Colors.grey.shade400,
                 fontSize  : 10,
                 fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                fontFamily: 'Inter',
               ),
               child: Text(label),
             ),
@@ -226,6 +240,8 @@ class _NavItem extends StatelessWidget {
     );
   }
 }
+
+// ─── Scan Tab Button (FAB style) ──────────────────────────────
 
 class _ScanTabButton extends StatelessWidget {
   final bool   selected;
@@ -243,42 +259,45 @@ class _ScanTabButton extends StatelessWidget {
     return GestureDetector(
       onTap    : onTap,
       behavior : HitTestBehavior.opaque,
-      child    : Column(
-        mainAxisSize     : MainAxisSize.min,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          AnimatedContainer(
-            duration  : const Duration(milliseconds: 250),
-            width     : 50,
-            height    : 50,
-            decoration: BoxDecoration(
-              color      : selected ? color : color.withOpacity(0.85),
-              shape      : BoxShape.circle,
-              boxShadow  : [
-                BoxShadow(
-                  color     : color.withOpacity(0.35),
-                  blurRadius: selected ? 16 : 8,
-                  spreadRadius: selected ? 2 : 0,
-                  offset    : const Offset(0, 3),
-                ),
-              ],
+      child    : SizedBox(
+        width : 64,
+        height: 60,
+        child : Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            AnimatedContainer(
+              duration  : const Duration(milliseconds: 250),
+              width     : 48,
+              height    : 48,
+              decoration: BoxDecoration(
+                color      : selected ? color : color.withOpacity(0.85),
+                shape      : BoxShape.circle,
+                boxShadow  : [
+                  BoxShadow(
+                    color     : color.withOpacity(0.35),
+                    blurRadius: selected ? 16 : 8,
+                    spreadRadius: selected ? 2 : 0,
+                    offset    : const Offset(0, 3),
+                  ),
+                ],
+              ),
+              child: Icon(
+                selected ? Icons.face_rounded : Icons.face_outlined,
+                color: Colors.white,
+                size : 24,
+              ),
             ),
-            child: Icon(
-              selected ? Icons.face_rounded : Icons.face_outlined,
-              color: Colors.white,
-              size : 24,
+            const SizedBox(height: 3),
+            Text(
+              'Scan',
+              style: TextStyle(
+                color     : selected ? color : Colors.grey.shade400,
+                fontSize  : 10,
+                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+              ),
             ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            'Scan',
-            style: TextStyle(
-              color     : selected ? color : Colors.grey.shade400,
-              fontSize  : 10,
-              fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-            ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
