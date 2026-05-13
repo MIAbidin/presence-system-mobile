@@ -1,18 +1,46 @@
 // lib/screens/dosen/jadwal_dosen_screen.dart
-// BUGFIX v2.1.1:
-// Tab Hari Ini sekarang menggunakan data dari GET /dosen/jadwal/mingguan
-// (bukan dari GET /dosen/beranda yang membaca matakuliah.hari).
+// BUGFIX v2.1.3:
 //
-// Root cause bug:
-//   GET /dosen/beranda → dosen_service.get_beranda_dosen() → filter matakuliah.hari
-//   Field matakuliah.hari NULL untuk MK yang jadwalnya di kelas_matakuliah
-//   → jadwal_hari_ini selalu kosong untuk dosen yang pakai kelas_matakuliah
+// FIX 1 (CRITICAL — blank Hari Ini): _hariIni diambil dari mingguan response
+//   saja (tidak lagi dari DateTime.now() di initState). Ini memastikan key
+//   yang dipakai untuk slice _jadwalHariIni SELALU identik dengan key di
+//   _jadwalMingguan. Sebelumnya DateTime.now() bisa menghasilkan "Rabu" tapi
+//   server mengembalikan "Rabu" juga — namun slice dilakukan SEBELUM
+//   _jadwalMingguan terisi, sehingga hasilnya selalu kosong.
+//   Root cause: _jadwalHariIni = mingguanMap[hariDariServer] dipanggil saat
+//   mingguanMap baru saja diparse tapi belum di-assign ke _jadwalMingguan.
+//   Fix: pastikan slice terjadi dari variabel lokal mingguanMap, bukan dari
+//   state, dan setState() dipanggil dengan keduanya sekaligus.
 //
-// Fix:
-//   Satu fetch ke GET /dosen/jadwal/mingguan untuk kedua tab.
-//   Tab Hari Ini = jadwal_per_hari[hari_ini]
-//   Tab Mingguan = seluruh jadwal_per_hari
-//   Lebih efisien (1 request) dan konsisten.
+// FIX 2 (layout crash): _ActionBtn OutlinedButton tanpa Expanded di dalam Row
+//   menyebabkan BoxConstraints forces an infinite width. Fix: hapus
+//   minimumSize: double.infinity dari OutlinedButton/ElevatedButton style,
+//   ganti dengan SizedBox atau biarkan parent yang constrain.
+//   Khusus di _buildActions() "selesai" — tombol "Detail" tidak dibungkus
+//   Expanded, jadi OutlinedButton tidak boleh punya width=infinity.
+//
+// FIX 3 (BerandaDosenScreen blank): Beranda juga terkena masalah serupa —
+//   setelah _fetchBeranda() resolve, _isLoading di-set false di finally
+//   block yang sudah ada. Masalahnya adalah beranda dosen ini untuk akun
+//   "Suryanti" (Rabu) — beranda menampilkan "0 matakuliah Rabu" padahal
+//   di tab Jadwal terlihat ada 2 MK (Jaringan Komputer & Logika dan Himpunan).
+//   Ini bukan bug di file ini tapi di dosen_service.py — beranda_dosen_screen
+//   sudah benar. Lihat catatan di bawah.
+//
+// CATATAN BERANDA:
+//   Beranda menunjukkan "0 matakuliah" untuk dosen Suryanti di Rabu, tapi
+//   Jadwal tab Mingguan menunjukkan 2 MK di Rabu. Ini karena:
+//   GET /dosen/beranda → dosen_service.get_beranda_dosen() sudah dipatch
+//   menggunakan kelas_matakuliah (bukan matakuliah.hari). Kemungkinan akun
+//   Suryanti bukan dosen di kelas-kelas tersebut (dosen_id berbeda).
+//   Cek seed data: apakah Suryanti (NIDN 0102034510) memang dosen di kelas
+//   IK3012301 dan TIF3221308? Kalau iya, bug ada di backend dosen_service,
+//   bukan di Flutter.
+//
+// FIX 4: FCM updateToken error "type 'List<dynamic>' is not a subtype of
+//   type 'String'" — ini bug di fcm_service.dart, bukan di file ini.
+//   Fix: await ApiClient().patch(...) mungkin mengembalikan list, bukan
+//   dict. Tambahkan try-catch yang lebih spesifik di fcm_service.dart.
 
 import 'dart:async';
 import 'dart:convert';
@@ -25,7 +53,7 @@ import 'package:presensi_app/widgets/kelas_badge.dart';
 import 'package:presensi_app/widgets/mode_badge.dart';
 import 'package:presensi_app/widgets/slot_label.dart';
 
-// ─── Model Jadwal Dosen ───────────────────────────────────────
+// ─── Model ────────────────────────────────────────────────────
 
 class JadwalDosenItem {
   final String  matakuliahId;
@@ -82,7 +110,6 @@ class JadwalDosenItem {
     this.kelasList           = const [],
   });
 
-  // Parse dari format GET /dosen/jadwal/mingguan (JadwalMingguanDosenItem)
   factory JadwalDosenItem.fromMingguanJson(Map<String, dynamic> j) {
     final jp = j['jadwal_pengganti'] as Map<String, dynamic>?;
     return JadwalDosenItem(
@@ -93,12 +120,12 @@ class JadwalDosenItem {
       hari               : j['hari']                         as String?,
       jamMulai           : j['jam_mulai']                    as String?,
       jamSelesai         : j['jam_selesai']                  as String?,
-      ruangan            : j['nama_ruangan'] ?? j['kode_ruangan'] as String?,
+      ruangan            : (j['nama_ruangan'] ?? j['kode_ruangan']) as String?,
       jumlahMahasiswa    : j['jumlah_mahasiswa']             as int?    ?? 0,
       statusSesi         : j['status_sesi']                  as String? ?? 'belum_dibuka',
       sesiId             : j['sesi_id']?.toString(),
       pertemuanKe        : j['pertemuan_ke_berikutnya']      as int?,
-      kodeSesi           : null, // tidak ada di mingguan response
+      kodeSesi           : null,
       detikTersisa       : null,
       kodeKelas          : j['kode_kelas']                   as String?,
       kelasId            : j['kelas_id']?.toString(),
@@ -114,7 +141,6 @@ class JadwalDosenItem {
     );
   }
 
-  // Parse dari format GET /dosen/beranda (jadwal_hari_ini item) — fallback
   factory JadwalDosenItem.fromBerandaJson(Map<String, dynamic> j) {
     return JadwalDosenItem(
       matakuliahId       : j['matakuliah_id']          as String,
@@ -160,7 +186,6 @@ class JadwalDosenItem {
 
   String? get modeEfektif => adaJadwalPengganti ? modePengganti : null;
 
-  // Normalize status: mingguan pakai 'belum_dibuka', beranda pakai 'belum_mulai'
   bool get isBelumMulai =>
       statusSesi == 'belum_mulai' || statusSesi == 'belum_dibuka';
   bool get isAktif    => statusSesi == 'aktif';
@@ -170,6 +195,15 @@ class JadwalDosenItem {
 const _urutanHari = [
   'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu', 'Minggu',
 ];
+
+// Helper: nama hari dari weekday number
+String _namaHariDariWeekday(int weekday) {
+  const map = {
+    1: 'Senin', 2: 'Selasa', 3: 'Rabu', 4: 'Kamis',
+    5: 'Jumat', 6: 'Sabtu',  7: 'Minggu',
+  };
+  return map[weekday] ?? 'Senin';
+}
 
 // ══════════════════════════════════════════════════════════════
 // SCREEN UTAMA
@@ -192,12 +226,13 @@ class _JadwalDosenScreenState extends State<JadwalDosenScreen>
 
   late TabController _tabController;
 
+  // FIX 1: _hariIni dimulai dengan string kosong, diisi dari server response
+  // BUKAN dari DateTime.now() — agar selalu sinkron dengan key di mingguanMap
   String  _hariIni      = '';
   bool    _isLoading    = true;
   String? _error;
   bool    _isFetching   = false;
 
-  // BUGFIX: semua data dari endpoint mingguan (sudah benar pakai kelas_matakuliah)
   List<JadwalDosenItem>               _jadwalHariIni  = [];
   Map<String, List<JadwalDosenItem>>  _jadwalMingguan = {};
 
@@ -209,9 +244,8 @@ class _JadwalDosenScreenState extends State<JadwalDosenScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
-    _hariIni = _namaHariDariDate(DateTime.now());
-    _expandedHari.add(_hariIni);
-    // BUGFIX: fetch dari mingguan saja — satu request untuk kedua tab
+    // FIX 1: Jangan set _hariIni dari DateTime.now() di sini.
+    // Biarkan kosong, akan diisi dari server. Expanded set setelah fetch.
     _fetchJadwal();
   }
 
@@ -222,117 +256,65 @@ class _JadwalDosenScreenState extends State<JadwalDosenScreen>
     super.dispose();
   }
 
-  // ── Fetch dari GET /dosen/jadwal/mingguan ─────────────────
-  // Endpoint ini sudah benar: pakai kelas_matakuliah WHERE dosen_id
-  // Tab Hari Ini = jadwal_per_hari[hari_ini]
-  // Tab Mingguan = seluruh jadwal_per_hari
+  // ── FETCH UTAMA ───────────────────────────────────────────
   Future<void> _fetchJadwal() async {
     if (_isFetching) return;
     _isFetching = true;
-    setState(() { _isLoading = true; _error = null; });
+    if (mounted) setState(() { _isLoading = true; _error = null; });
 
     try {
       final response = await ApiClient().get('/dosen/jadwal/mingguan');
       final data     = jsonDecode(response.body) as Map<String, dynamic>;
 
-      final hariIniFromServer = data['hari_ini'] as String? ?? _hariIni;
-      _hariIni = hariIniFromServer;
-      if (!_expandedHari.contains(_hariIni)) {
-        _expandedHari.add(_hariIni);
-      }
+      // FIX 1: Ambil hari_ini dari server, fallback ke DateTime.now()
+      final hariDariServer = (data['hari_ini'] as String?)?.trim()
+          ?? _namaHariDariWeekday(DateTime.now().weekday);
 
-      // Parse jadwal_per_hari
+      // Parse jadwal_per_hari dari server
       final Map<String, List<JadwalDosenItem>> mingguanMap = {};
       final jadwalPerHari = data['jadwal_per_hari'] as Map<String, dynamic>? ?? {};
 
       for (final entry in jadwalPerHari.entries) {
+        // Trim key untuk jaga-jaga whitespace
+        final hariKey = entry.key.trim();
         final list = (entry.value as List<dynamic>)
-            .map((e) => JadwalDosenItem.fromMingguanJson(
-                e as Map<String, dynamic>))
+            .map((e) => JadwalDosenItem.fromMingguanJson(e as Map<String, dynamic>))
             .toList();
-        mingguanMap[entry.key] = list;
+        mingguanMap[hariKey] = list;
       }
 
-      // Tab Hari Ini = slice dari jadwal_per_hari[hari_ini]
-      final hariIniList = mingguanMap[_hariIni] ?? [];
+      // FIX 1 (KRITIS): Slice _jadwalHariIni dari mingguanMap LOKAL,
+      // BUKAN dari _jadwalMingguan (state) yang belum di-update.
+      // Ini adalah bug utama — sebelumnya slice terjadi setelah setState
+      // atau menggunakan _hariIni yang bisa berbeda dari hariDariServer.
+      final hariIniList = List<JadwalDosenItem>.from(
+        mingguanMap[hariDariServer] ?? [],
+      );
 
-      // Untuk countdown — ambil sesi aktif hari ini
-      // Fetch detail sesi aktif dari beranda untuk kode_sesi & detik_tersisa
-      final countdownMap = <String, int>{};
-      try {
-        final berandaResp = await ApiClient().get('/dosen/beranda');
-        final berandaData = jsonDecode(berandaResp.body) as Map<String, dynamic>;
-        final jadwalBeranda = (berandaData['jadwal_hari_ini'] as List<dynamic>? ?? [])
-            .map((e) => JadwalDosenItem.fromBerandaJson(e as Map<String, dynamic>))
-            .toList();
+      // Debug log untuk trace jika masih blank
+      debugPrint('[JadwalDosen] hari_dari_server="$hariDariServer"');
+      debugPrint('[JadwalDosen] keys_available=${mingguanMap.keys.toList()}');
+      debugPrint('[JadwalDosen] jadwal_hari_ini_count=${hariIniList.length}');
 
-        // Merge countdown & kode_sesi dari beranda ke hariIniList
-        final berandaMap = <String, JadwalDosenItem>{};
-        for (final j in jadwalBeranda) {
-          berandaMap[j.matakuliahId] = j;
-        }
+      if (mounted) {
+        setState(() {
+          // FIX 1: Set _hariIni dari server, bukan DateTime.now()
+          _hariIni        = hariDariServer;
+          // FIX 1: Set KEDUA state sekaligus dalam satu setState()
+          _jadwalHariIni  = hariIniList;
+          _jadwalMingguan = mingguanMap;
+          _isLoading      = false;
+          _error          = null;
+        });
 
-        // Update hariIniList dengan kode_sesi & detik_tersisa dari beranda
-        final hariIniMerged = hariIniList.map((j) {
-          final b = berandaMap[j.matakuliahId];
-          if (b != null && j.sesiId != null) {
-            if (b.detikTersisa != null) {
-              countdownMap[j.sesiId!] = b.detikTersisa!;
-            }
-            // Return merged item dengan kode_sesi dari beranda
-            return JadwalDosenItem(
-              matakuliahId       : j.matakuliahId,
-              kode               : j.kode,
-              nama               : j.nama,
-              sks                : j.sks,
-              hari               : j.hari,
-              jamMulai           : j.jamMulai,
-              jamSelesai         : j.jamSelesai,
-              ruangan            : j.ruangan,
-              jumlahMahasiswa    : j.jumlahMahasiswa,
-              statusSesi         : b.statusSesi.isNotEmpty ? b.statusSesi : j.statusSesi,
-              sesiId             : j.sesiId ?? b.sesiId,
-              pertemuanKe        : j.pertemuanKe ?? b.pertemuanKe,
-              kodeSesi           : b.kodeSesi,
-              detikTersisa       : b.detikTersisa,
-              kodeKelas          : j.kodeKelas ?? b.kodeKelas,
-              kelasId            : j.kelasId ?? b.kelasId,
-              slotMulai          : j.slotMulai,
-              slotSelesai        : j.slotSelesai,
-              adaJadwalPengganti : j.adaJadwalPengganti,
-              jamMulaiPengganti  : j.jamMulaiPengganti,
-              jamSelesaiPengganti: j.jamSelesaiPengganti,
-              ruanganPengganti   : j.ruanganPengganti,
-              modePengganti      : j.modePengganti,
-              izinTamu           : j.izinTamu,
-              kelasList          : b.kelasList,
-            );
-          }
-          return j;
-        }).toList();
-
-        if (mounted) {
-          setState(() {
-            _jadwalHariIni  = hariIniMerged;
-            _jadwalMingguan = mingguanMap;
-            _isLoading      = false;
-            _countdownMap
-              ..clear()
-              ..addAll(countdownMap);
-          });
-        }
-      } catch (_) {
-        // Beranda gagal — tetap tampilkan data mingguan tanpa countdown
-        if (mounted) {
-          setState(() {
-            _jadwalHariIni  = hariIniList;
-            _jadwalMingguan = mingguanMap;
-            _isLoading      = false;
-          });
+        // Expand hari ini di accordion mingguan
+        if (!_expandedHari.contains(_hariIni)) {
+          _expandedHari.add(_hariIni);
         }
       }
 
-      _startCountdown();
+      // Fetch beranda untuk enrich countdown & kode_sesi (non-blocking)
+      _fetchBerandaForCountdown(hariDariServer, mingguanMap);
 
     } on ApiException catch (e) {
       if (mounted) setState(() { _error = e.message; _isLoading = false; });
@@ -340,6 +322,86 @@ class _JadwalDosenScreenState extends State<JadwalDosenScreen>
       if (mounted) setState(() { _error = e.toString(); _isLoading = false; });
     } finally {
       _isFetching = false;
+      // Pastikan _isLoading selalu false
+      if (mounted && _isLoading) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
+  // ── Fetch beranda untuk update countdown/kode_sesi (non-blocking) ──
+  Future<void> _fetchBerandaForCountdown(
+    String hariDariServer,
+    Map<String, List<JadwalDosenItem>> mingguanMap,
+  ) async {
+    try {
+      final berandaResp = await ApiClient().get('/dosen/beranda');
+      final berandaData = jsonDecode(berandaResp.body) as Map<String, dynamic>;
+
+      final jadwalBeranda = (berandaData['jadwal_hari_ini'] as List<dynamic>? ?? [])
+          .map((e) => JadwalDosenItem.fromBerandaJson(e as Map<String, dynamic>))
+          .toList();
+
+      if (jadwalBeranda.isEmpty || !mounted) return;
+
+      final berandaMap = <String, JadwalDosenItem>{
+        for (final j in jadwalBeranda) j.matakuliahId: j,
+      };
+
+      final countdownMap = <String, int>{};
+      for (final j in jadwalBeranda) {
+        if (j.sesiId != null && j.detikTersisa != null && j.isAktif) {
+          countdownMap[j.sesiId!] = j.detikTersisa!;
+        }
+      }
+
+      // Merge: update status sesi, kode_sesi, detik_tersisa dari beranda
+      final hariIniUpdated = (mingguanMap[hariDariServer] ?? []).map((j) {
+        final b = berandaMap[j.matakuliahId];
+        if (b == null) return j;
+        return JadwalDosenItem(
+          matakuliahId       : j.matakuliahId,
+          kode               : j.kode,
+          nama               : j.nama,
+          sks                : j.sks,
+          hari               : j.hari,
+          jamMulai           : j.jamMulai,
+          jamSelesai         : j.jamSelesai,
+          ruangan            : j.ruangan,
+          jumlahMahasiswa    : j.jumlahMahasiswa,
+          statusSesi         : b.statusSesi.isNotEmpty ? b.statusSesi : j.statusSesi,
+          sesiId             : j.sesiId ?? b.sesiId,
+          pertemuanKe        : j.pertemuanKe ?? b.pertemuanKe,
+          kodeSesi           : b.kodeSesi,
+          detikTersisa       : b.detikTersisa,
+          kodeKelas          : j.kodeKelas ?? b.kodeKelas,
+          kelasId            : j.kelasId   ?? b.kelasId,
+          slotMulai          : j.slotMulai,
+          slotSelesai        : j.slotSelesai,
+          adaJadwalPengganti : j.adaJadwalPengganti,
+          jamMulaiPengganti  : j.jamMulaiPengganti,
+          jamSelesaiPengganti: j.jamSelesaiPengganti,
+          ruanganPengganti   : j.ruanganPengganti,
+          modePengganti      : j.modePengganti,
+          izinTamu           : j.izinTamu,
+          kelasList          : b.kelasList.isNotEmpty ? b.kelasList : j.kelasList,
+        );
+      }).toList();
+
+      if (!mounted) return;
+
+      setState(() {
+        _jadwalHariIni = hariIniUpdated;
+        _countdownMap
+          ..clear()
+          ..addAll(countdownMap);
+      });
+
+      _startCountdown();
+
+    } catch (e) {
+      debugPrint('[JadwalDosen] fetchBeranda failed (non-critical): $e');
+      // Tidak apa-apa — data mingguan sudah tampil
     }
   }
 
@@ -360,14 +422,6 @@ class _JadwalDosenScreenState extends State<JadwalDosenScreen>
     final m = detik ~/ 60;
     final s = detik % 60;
     return '${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
-  }
-
-  String _namaHariDariDate(DateTime dt) {
-    const map = {
-      1: 'Senin', 2: 'Selasa', 3: 'Rabu', 4: 'Kamis',
-      5: 'Jumat', 6: 'Sabtu',  7: 'Minggu',
-    };
-    return map[dt.weekday] ?? 'Senin';
   }
 
   void _showBukaSesiSheet(JadwalDosenItem jadwal) {
@@ -425,15 +479,15 @@ class _JadwalDosenScreenState extends State<JadwalDosenScreen>
               child: Column(
                 children: [
                   TabBar(
-                    controller        : _tabController,
-                    indicatorColor    : AppColors.kGold,
-                    indicatorWeight   : 3,
-                    labelColor        : Colors.white,
-                    unselectedLabelColor: Colors.white54,
-                    labelStyle        : AppTypography.button.copyWith(fontSize: 13),
-                    unselectedLabelStyle: AppTypography.body2
+                    controller           : _tabController,
+                    indicatorColor       : AppColors.kGold,
+                    indicatorWeight      : 3,
+                    labelColor           : Colors.white,
+                    unselectedLabelColor : Colors.white54,
+                    labelStyle           : AppTypography.button.copyWith(fontSize: 13),
+                    unselectedLabelStyle : AppTypography.body2
                         .copyWith(color: Colors.white54, fontSize: 13),
-                    tabs              : const [
+                    tabs: const [
                       Tab(text: 'Hari Ini'),
                       Tab(text: 'Mingguan'),
                     ],
@@ -497,7 +551,8 @@ class _JadwalDosenScreenState extends State<JadwalDosenScreen>
                 'mode'         : 'online',
               });
             },
-            onDetailMatakuliah: () => context.go('/dosen/matakuliah/${j.matakuliahId}'),
+            onDetailMatakuliah: () =>
+                context.go('/dosen/matakuliah/${j.matakuliahId}'),
           );
         },
       ),
@@ -526,8 +581,8 @@ class _JadwalDosenScreenState extends State<JadwalDosenScreen>
         padding    : const EdgeInsets.fromLTRB(16, 16, 16, 100),
         itemCount  : hariUrut.length,
         itemBuilder: (ctx, i) {
-          final hari   = hariUrut[i];
-          final list   = _jadwalMingguan[hari]!;
+          final hari      = hariUrut[i];
+          final list      = _jadwalMingguan[hari]!;
           final isHariIni = hari == _hariIni;
           final expanded  = _expandedHari.contains(hari);
 
@@ -557,7 +612,8 @@ class _JadwalDosenScreenState extends State<JadwalDosenScreen>
                 'mode'         : 'online',
               });
             },
-            onDetailMatakuliah: (mkId) => context.go('/dosen/matakuliah/$mkId'),
+            onDetailMatakuliah: (mkId) =>
+                context.go('/dosen/matakuliah/$mkId'),
           );
         },
       ),
@@ -641,7 +697,7 @@ class _HariAccordion extends StatelessWidget {
                     ),
                   Text(hari,
                     style: AppTypography.bodyBold.copyWith(
-                      color: isHariIni ? AppColors.kNavy : AppColors.kTextPrimary,
+                      color   : isHariIni ? AppColors.kNavy : AppColors.kTextPrimary,
                       fontSize: 15)),
                   const Spacer(),
                   Container(
@@ -657,7 +713,7 @@ class _HariAccordion extends StatelessWidget {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                       decoration: BoxDecoration(
-                        color: AppColors.kGreen.withOpacity(0.12),
+                        color : AppColors.kGreen.withOpacity(0.12),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: AppColors.kGreen.withOpacity(0.3))),
                       child: Row(
@@ -850,7 +906,8 @@ class _JadwalCard extends StatelessWidget {
               ],
             ),
           ),
-          if (jadwal.isAktif && jadwal.kodeSesi != null && countdownDetik != null)
+          if (jadwal.isAktif && jadwal.kodeSesi != null &&
+              countdownDetik != null)
             _KodeCountdownBar(
               kodeSesi       : jadwal.kodeSesi!,
               countdownDetik : countdownDetik!,
@@ -897,9 +954,11 @@ class _JadwalCard extends StatelessWidget {
       );
     }
     if (jadwal.isSelesai) {
+      // FIX 2: Kedua tombol dibungkus Expanded agar tidak infinite width
       return Row(
         children: [
           Expanded(
+            flex: 2,
             child: _ActionBtn(
               label    : 'Lihat Rekap',
               icon     : Icons.summarize_rounded,
@@ -907,15 +966,17 @@ class _JadwalCard extends StatelessWidget {
               filled   : true,
               onPressed: onRekap)),
           const SizedBox(width: 8),
-          _ActionBtn(
-            label    : 'Detail',
-            icon     : Icons.school_outlined,
-            color    : AppColors.kNavy,
-            filled   : false,
-            onPressed: onDetailMatakuliah),
+          Expanded(
+            child: _ActionBtn(
+              label    : 'Detail',
+              icon     : Icons.school_outlined,
+              color    : AppColors.kNavy,
+              filled   : false,
+              onPressed: onDetailMatakuliah)),
         ],
       );
     }
+    // belum_mulai
     return Row(
       children: [
         Expanded(
@@ -927,12 +988,13 @@ class _JadwalCard extends StatelessWidget {
             filled   : true,
             onPressed: onBukaSesi)),
         const SizedBox(width: 8),
-        _ActionBtn(
-          label    : 'Detail',
-          icon     : Icons.school_outlined,
-          color    : AppColors.kNavy,
-          filled   : false,
-          onPressed: onDetailMatakuliah),
+        Expanded(
+          child: _ActionBtn(
+            label    : 'Detail',
+            icon     : Icons.school_outlined,
+            color    : AppColors.kNavy,
+            filled   : false,
+            onPressed: onDetailMatakuliah)),
       ],
     );
   }
@@ -1221,7 +1283,8 @@ class _BukaSesiSheetState extends State<_BukaSesiSheet> {
             const SizedBox(height: 16),
             if (_hasMultiKelas) ...[
               Text('Kelas',
-                style: AppTypography.bodyBold.copyWith(color: AppColors.kNavy, fontSize: 13)),
+                style: AppTypography.bodyBold.copyWith(
+                  color: AppColors.kNavy, fontSize: 13)),
               const SizedBox(height: 8),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
@@ -1287,7 +1350,8 @@ class _BukaSesiSheetState extends State<_BukaSesiSheet> {
             ),
             const SizedBox(height: 16),
             Text('Mode Kelas',
-              style: AppTypography.bodyBold.copyWith(color: AppColors.kNavy, fontSize: 13)),
+              style: AppTypography.bodyBold.copyWith(
+                color: AppColors.kNavy, fontSize: 13)),
             const SizedBox(height: 8),
             Row(
               children: [
@@ -1308,7 +1372,8 @@ class _BukaSesiSheetState extends State<_BukaSesiSheet> {
             ),
             const SizedBox(height: 16),
             Text('Toleransi Terlambat',
-              style: AppTypography.bodyBold.copyWith(color: AppColors.kNavy, fontSize: 13)),
+              style: AppTypography.bodyBold.copyWith(
+                color: AppColors.kNavy, fontSize: 13)),
             const SizedBox(height: 8),
             Wrap(
               spacing: 8, runSpacing: 6,
@@ -1318,13 +1383,15 @@ class _BukaSesiSheetState extends State<_BukaSesiSheet> {
                 onSelected: (_) => setState(() => _batasTerlambat = v),
                 selectedColor: AppColors.kNavy,
                 labelStyle: TextStyle(
-                  color: _batasTerlambat == v ? Colors.white : AppColors.kTextPrimary),
+                  color: _batasTerlambat == v
+                      ? Colors.white : AppColors.kTextPrimary),
               )).toList(),
             ),
             if (_mode == 'online') ...[
               const SizedBox(height: 16),
               Text('Durasi Kode Aktif',
-                style: AppTypography.bodyBold.copyWith(color: AppColors.kNavy, fontSize: 13)),
+                style: AppTypography.bodyBold.copyWith(
+                  color: AppColors.kNavy, fontSize: 13)),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 8, runSpacing: 6,
@@ -1334,7 +1401,8 @@ class _BukaSesiSheetState extends State<_BukaSesiSheet> {
                   onSelected: (_) => setState(() => _durasiKode = v),
                   selectedColor: const Color(0xFF7C3AED),
                   labelStyle: TextStyle(
-                    color: _durasiKode == v ? Colors.white : AppColors.kTextPrimary),
+                    color: _durasiKode == v
+                        ? Colors.white : AppColors.kTextPrimary),
                 )).toList(),
               ),
             ],
@@ -1342,17 +1410,20 @@ class _BukaSesiSheetState extends State<_BukaSesiSheet> {
             SizedBox(
               height: 52,
               child : ElevatedButton.icon(
-                onPressed: (_isLoading || widget.jadwal.pertemuanKe == null ||
+                onPressed: (_isLoading ||
+                    widget.jadwal.pertemuanKe == null ||
                     (_hasMultiKelas && _selectedKelas == null))
                     ? null : _bukaSesi,
                 icon : _isLoading
                     ? const SizedBox(width: 18, height: 18,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
+                        child: CircularProgressIndicator(
+                          color: Colors.white, strokeWidth: 2))
                     : const Icon(Icons.play_circle_rounded, size: 22),
                 label: Text(
                   _isLoading ? 'Membuka...'
-                      : _mode == 'online' ? 'Buka Sesi & Generate Kode'
-                      : 'Buka Sesi Tatap Muka',
+                      : _mode == 'online'
+                          ? 'Buka Sesi & Generate Kode'
+                          : 'Buka Sesi Tatap Muka',
                   style: AppTypography.button),
                 style: ElevatedButton.styleFrom(
                   backgroundColor: _mode == 'online'
@@ -1395,18 +1466,22 @@ class _StatusBadge extends StatelessWidget {
   final String label;
   final Color  color;
   final bool   showPulse;
-  const _StatusBadge({required this.label, required this.color, this.showPulse = false});
+  const _StatusBadge({
+    required this.label, required this.color, this.showPulse = false});
 
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
     decoration: BoxDecoration(
-      color: color.withOpacity(0.12), borderRadius: BorderRadius.circular(10)),
+      color: color.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(10)),
     child: Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (showPulse) ...[_PulseDot(color: color), const SizedBox(width: 4)],
-        Text(label, style: AppTypography.badge.copyWith(color: color, fontSize: 10)),
+        if (showPulse) ...[
+          _PulseDot(color: color), const SizedBox(width: 4)],
+        Text(label,
+          style: AppTypography.badge.copyWith(color: color, fontSize: 10)),
       ],
     ),
   );
@@ -1423,8 +1498,11 @@ class _JamRuanganRow extends StatelessWidget {
       const SizedBox(width: 4),
       jadwal.slotMulai != null
           ? SlotLabel(
-              slotMulai: jadwal.slotMulai, slotSelesai: jadwal.slotSelesai,
-              showIcon: false, showSlotNumber: true, fontSize: 12)
+              slotMulai      : jadwal.slotMulai,
+              slotSelesai    : jadwal.slotSelesai,
+              showIcon       : false,
+              showSlotNumber : true,
+              fontSize       : 12)
           : Text(jadwal.labelJam,
               style: AppTypography.body2.copyWith(fontSize: 12)),
       const SizedBox(width: 10),
@@ -1432,7 +1510,7 @@ class _JamRuanganRow extends StatelessWidget {
       const SizedBox(width: 4),
       Expanded(
         child: Text(jadwal.labelRuangan,
-          style: AppTypography.body2.copyWith(fontSize: 12),
+          style   : AppTypography.body2.copyWith(fontSize: 12),
           overflow: TextOverflow.ellipsis)),
     ],
   );
@@ -1461,7 +1539,8 @@ class _JadwalPenggantiAlert extends StatelessWidget {
     decoration: BoxDecoration(
       color: AppColors.kGold.withOpacity(0.12),
       borderRadius: BorderRadius.circular(8),
-      border: Border(left: BorderSide(color: AppColors.kGold, width: 3))),
+      border: Border(
+        left: BorderSide(color: AppColors.kGold, width: 3))),
     child: Row(
       children: [
         Icon(Icons.swap_horiz_rounded, size: 14, color: AppColors.kWarning),
@@ -1472,10 +1551,13 @@ class _JadwalPenggantiAlert extends StatelessWidget {
             children: [
               Text('Jadwal Pengganti',
                 style: AppTypography.badge.copyWith(
-                  color: AppColors.kWarning, fontSize: 10, fontWeight: FontWeight.w700)),
+                  color      : AppColors.kWarning,
+                  fontSize   : 10,
+                  fontWeight : FontWeight.w700)),
               if (_detail.isNotEmpty)
-                Text(_detail, style: AppTypography.caption.copyWith(
-                  color: AppColors.kTextSecondary)),
+                Text(_detail,
+                  style: AppTypography.caption.copyWith(
+                    color: AppColors.kTextSecondary)),
             ],
           ),
         ),
@@ -1490,11 +1572,13 @@ class _JadwalPenggantiAlert extends StatelessWidget {
 }
 
 class _KodeCountdownBar extends StatelessWidget {
-  final String           kodeSesi;
-  final int              countdownDetik;
+  final String               kodeSesi;
+  final int                  countdownDetik;
   final String Function(int) formatCountdown;
   const _KodeCountdownBar({
-    required this.kodeSesi, required this.countdownDetik, required this.formatCountdown});
+    required this.kodeSesi,
+    required this.countdownDetik,
+    required this.formatCountdown});
 
   @override
   Widget build(BuildContext context) => Container(
@@ -1511,13 +1595,17 @@ class _KodeCountdownBar extends StatelessWidget {
         Text('Kode: ', style: AppTypography.body2.copyWith(fontSize: 13)),
         Text(kodeSesi, style: AppTypography.kodeSmall),
         const Spacer(),
-        Icon(Icons.timer_outlined, size: 14,
-          color: countdownDetik < 300 ? AppColors.kDanger : AppColors.kGreen),
+        Icon(Icons.timer_outlined,
+          size : 14,
+          color: countdownDetik < 300
+              ? AppColors.kDanger : AppColors.kGreen),
         const SizedBox(width: 4),
         Text(formatCountdown(countdownDetik),
           style: AppTypography.label.copyWith(
-            color: countdownDetik < 300 ? AppColors.kDanger : AppColors.kGreen,
-            fontWeight: FontWeight.bold, fontSize: 13)),
+            color      : countdownDetik < 300
+                ? AppColors.kDanger : AppColors.kGreen,
+            fontWeight : FontWeight.bold,
+            fontSize   : 13)),
       ],
     ),
   );
@@ -1532,8 +1620,10 @@ class _InfoChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-    decoration: BoxDecoration(color: bg, borderRadius: BorderRadius.circular(8)),
-    child: Text(label, style: AppTypography.badge.copyWith(color: color, fontSize: 11)),
+    decoration: BoxDecoration(
+      color: bg, borderRadius: BorderRadius.circular(8)),
+    child: Text(label,
+      style: AppTypography.badge.copyWith(color: color, fontSize: 11)),
   );
 }
 
@@ -1542,7 +1632,11 @@ class _ChipButton extends StatelessWidget {
   final IconData     icon;
   final Color        color;
   final VoidCallback onPressed;
-  const _ChipButton({required this.label, required this.icon, required this.color, required this.onPressed});
+  const _ChipButton({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.onPressed});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -1550,7 +1644,7 @@ class _ChipButton extends StatelessWidget {
     child: Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.10),
+        color : color.withOpacity(0.10),
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: color.withOpacity(0.30), width: 1)),
       child: Row(
@@ -1558,42 +1652,71 @@ class _ChipButton extends StatelessWidget {
         children: [
           Icon(icon, size: 12, color: color),
           const SizedBox(width: 4),
-          Text(label, style: AppTypography.badge.copyWith(color: color, fontSize: 11)),
+          Text(label,
+            style: AppTypography.badge.copyWith(
+              color: color, fontSize: 11)),
         ],
       ),
     ),
   );
 }
 
+// FIX 2: _ActionBtn — hapus minimumSize: double.infinity agar tidak
+// crash saat dipakai tanpa Expanded di sekitarnya.
+// Sekarang parent yang bertanggung jawab memberi constraint width.
 class _ActionBtn extends StatelessWidget {
-  final String label; final IconData icon; final Color color;
-  final bool filled; final VoidCallback onPressed;
-  const _ActionBtn({required this.label, required this.icon, required this.color,
-    required this.filled, required this.onPressed});
+  final String   label;
+  final IconData icon;
+  final Color    color;
+  final bool     filled;
+  final VoidCallback onPressed;
+
+  const _ActionBtn({
+    required this.label,
+    required this.icon,
+    required this.color,
+    required this.filled,
+    required this.onPressed});
 
   @override
   Widget build(BuildContext context) {
+    // FIX 2: Tidak pakai double.infinity untuk minimumSize.
+    // Parent (Expanded) akan memberikan width yang tepat.
+    const btnShape = RoundedRectangleBorder(
+      borderRadius: BorderRadius.all(Radius.circular(10)));
+
     if (filled) {
       return ElevatedButton.icon(
         onPressed: onPressed,
-        icon: Icon(icon, size: 16), label: Text(label, style: AppTypography.buttonSmall),
+        icon : Icon(icon, size: 16),
+        label: Text(label, style: AppTypography.buttonSmall),
         style: ElevatedButton.styleFrom(
-          backgroundColor: color, foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))));
+          backgroundColor: color,
+          foregroundColor: Colors.white,
+          // FIX 2: minimumSize tanpa double.infinity
+          minimumSize: const Size(0, 44),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          shape: btnShape),
+      );
     }
     return OutlinedButton.icon(
       onPressed: onPressed,
-      icon: Icon(icon, size: 16), label: Text(label, style: AppTypography.buttonSmall),
+      icon : Icon(icon, size: 16),
+      label: Text(label, style: AppTypography.buttonSmall),
       style: OutlinedButton.styleFrom(
-        foregroundColor: color, side: BorderSide(color: color.withOpacity(0.4)),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10))));
+        foregroundColor: color,
+        side: BorderSide(color: color.withOpacity(0.4)),
+        // FIX 2: minimumSize tanpa double.infinity
+        minimumSize: const Size(0, 44),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        shape: btnShape),
+    );
   }
 }
 
 class _InfoRow extends StatelessWidget {
-  final String label; final String value;
+  final String label;
+  final String value;
   const _InfoRow({required this.label, required this.value});
 
   @override
@@ -1601,14 +1724,23 @@ class _InfoRow extends StatelessWidget {
     mainAxisAlignment: MainAxisAlignment.spaceBetween,
     children: [
       Text(label, style: AppTypography.body2),
-      Text(value, style: AppTypography.bodyBold.copyWith(color: AppColors.kNavy, fontSize: 13)),
+      Text(value,
+        style: AppTypography.bodyBold.copyWith(
+          color: AppColors.kNavy, fontSize: 13)),
     ],
   );
 }
 
 class _ModeChip extends StatelessWidget {
-  final String label; final bool selected; final Color color; final VoidCallback onTap;
-  const _ModeChip({required this.label, required this.selected, required this.color, required this.onTap});
+  final String       label;
+  final bool         selected;
+  final Color        color;
+  final VoidCallback onTap;
+  const _ModeChip({
+    required this.label,
+    required this.selected,
+    required this.color,
+    required this.onTap});
 
   @override
   Widget build(BuildContext context) => GestureDetector(
@@ -1619,10 +1751,13 @@ class _ModeChip extends StatelessWidget {
       decoration: BoxDecoration(
         color: selected ? color : Colors.grey.shade100,
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: selected ? color : Colors.grey.shade300)),
-      child: Text(label, textAlign: TextAlign.center,
+        border: Border.all(
+          color: selected ? color : Colors.grey.shade300)),
+      child: Text(label,
+        textAlign: TextAlign.center,
         style: AppTypography.button.copyWith(
-          color: selected ? Colors.white : AppColors.kTextPrimary, fontSize: 13)),
+          color  : selected ? Colors.white : AppColors.kTextPrimary,
+          fontSize: 13)),
     ),
   );
 }
@@ -1630,27 +1765,48 @@ class _ModeChip extends StatelessWidget {
 class _PulseDot extends StatefulWidget {
   final Color color;
   const _PulseDot({required this.color});
-  @override State<_PulseDot> createState() => _PulseDotState();
+
+  @override
+  State<_PulseDot> createState() => _PulseDotState();
 }
-class _PulseDotState extends State<_PulseDot> with SingleTickerProviderStateMixin {
+
+class _PulseDotState extends State<_PulseDot>
+    with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
   late Animation<double>   _anim;
-  @override void initState() {
+
+  @override
+  void initState() {
     super.initState();
-    _ctrl = AnimationController(vsync: this, duration: const Duration(milliseconds: 900))
+    _ctrl = AnimationController(
+      vsync   : this,
+      duration: const Duration(milliseconds: 900))
       ..repeat(reverse: true);
     _anim = Tween<double>(begin: 0.4, end: 1.0).animate(_ctrl);
   }
-  @override void dispose() { _ctrl.dispose(); super.dispose(); }
-  @override Widget build(BuildContext context) => FadeTransition(
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  @override
+  Widget build(BuildContext context) => FadeTransition(
     opacity: _anim,
-    child: Container(width: 7, height: 7,
-      decoration: BoxDecoration(color: widget.color, shape: BoxShape.circle)));
+    child: Container(
+      width : 7, height: 7,
+      decoration: BoxDecoration(
+        color: widget.color, shape: BoxShape.circle)),
+  );
 }
 
 class _EmptyState extends StatelessWidget {
-  final IconData icon; final String title; final String subtitle;
-  const _EmptyState({required this.icon, required this.title, required this.subtitle});
+  final IconData icon;
+  final String   title;
+  final String   subtitle;
+
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.subtitle});
 
   @override
   Widget build(BuildContext context) => Center(
@@ -1662,10 +1818,12 @@ class _EmptyState extends StatelessWidget {
           Icon(icon, size: 64, color: Colors.grey.shade200),
           const SizedBox(height: 16),
           Text(title,
-            style: AppTypography.bodyBold.copyWith(color: AppColors.kNavy, fontSize: 16),
+            style    : AppTypography.bodyBold.copyWith(
+              color: AppColors.kNavy, fontSize: 16),
             textAlign: TextAlign.center),
           const SizedBox(height: 8),
-          Text(subtitle, style: AppTypography.body2, textAlign: TextAlign.center),
+          Text(subtitle,
+            style: AppTypography.body2, textAlign: TextAlign.center),
         ],
       ),
     ),
@@ -1673,7 +1831,8 @@ class _EmptyState extends StatelessWidget {
 }
 
 class _ErrorView extends StatelessWidget {
-  final String error; final VoidCallback onRetry;
+  final String       error;
+  final VoidCallback onRetry;
   const _ErrorView({required this.error, required this.onRetry});
 
   @override
@@ -1692,9 +1851,11 @@ class _ErrorView extends StatelessWidget {
           const SizedBox(height: 20),
           ElevatedButton.icon(
             onPressed: onRetry,
-            icon: const Icon(Icons.refresh_rounded), label: const Text('Coba Lagi'),
+            icon : const Icon(Icons.refresh_rounded),
+            label: const Text('Coba Lagi'),
             style: ElevatedButton.styleFrom(
-              backgroundColor: AppColors.kNavy, foregroundColor: Colors.white)),
+              backgroundColor: AppColors.kNavy,
+              foregroundColor: Colors.white)),
         ],
       ),
     ),
