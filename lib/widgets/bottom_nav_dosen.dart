@@ -1,60 +1,10 @@
 // lib/widgets/bottom_nav_dosen.dart
-// v2.1.0 Fase 6 UPDATE — 5 tab:
-// Beranda (0) / Jadwal (1) / Monitor (2) / Rekap (3) / Profil (4)
-//
-// Perubahan dari v2.0.0 (4 tab):
-// - Tambah tab Jadwal di index 1
-// - Tab Monitor geser ke index 2, Rekap → 3, Profil → 4
-// - Tab Monitor tetap punya badge sesi aktif (dot merah)
+// FIX: Hapus BOTTOM OVERFLOWED - gunakan SafeArea dengan top:false
 
 import 'package:flutter/material.dart';
 
-// ─── Konstanta warna ──────────────────────────────────────────
 const _kNavy = Color(0xFF003366);
-const _kGold = Color(0xFFFDB813);
 
-// ─── Data tab ─────────────────────────────────────────────────
-class _TabItem {
-  final String   label;
-  final IconData icon;
-  final IconData iconAktif;
-
-  const _TabItem({
-    required this.label,
-    required this.icon,
-    required this.iconAktif,
-  });
-}
-
-const List<_TabItem> _tabs = [
-  _TabItem(
-    label    : 'Beranda',
-    icon     : Icons.home_outlined,
-    iconAktif: Icons.home_rounded,
-  ),
-  _TabItem(
-    label    : 'Jadwal',
-    icon     : Icons.calendar_month_outlined,
-    iconAktif: Icons.calendar_month_rounded,
-  ),
-  _TabItem(
-    label    : 'Monitor',
-    icon     : Icons.bar_chart_outlined,
-    iconAktif: Icons.bar_chart_rounded,
-  ),
-  _TabItem(
-    label    : 'Rekap',
-    icon     : Icons.summarize_outlined,
-    iconAktif: Icons.summarize_rounded,
-  ),
-  _TabItem(
-    label    : 'Profil',
-    icon     : Icons.person_outline_rounded,
-    iconAktif: Icons.person_rounded,
-  ),
-];
-
-// ─── Indeks tab (konstanta agar mudah dirujuk) ─────────────────
 class DosenTabIndex {
   DosenTabIndex._();
   static const int beranda = 0;
@@ -65,13 +15,24 @@ class DosenTabIndex {
   static const int total   = 5;
 }
 
-// ─── BottomNavDosen ───────────────────────────────────────────
+class _TabData {
+  final String   label;
+  final IconData icon;
+  final IconData iconAktif;
+  const _TabData(this.label, this.icon, this.iconAktif);
+}
+
+const List<_TabData> _tabs = [
+  _TabData('Beranda', Icons.home_outlined, Icons.home_rounded),
+  _TabData('Jadwal', Icons.calendar_month_outlined, Icons.calendar_month_rounded),
+  _TabData('Monitor', Icons.bar_chart_outlined, Icons.bar_chart_rounded),
+  _TabData('Rekap', Icons.summarize_outlined, Icons.summarize_rounded),
+  _TabData('Profil', Icons.person_outline_rounded, Icons.person_rounded),
+];
 
 class BottomNavDosen extends StatelessWidget {
   final int  currentIndex;
   final void Function(int) onTap;
-
-  /// Kalau ada sesi aktif, tab Monitor (index 2) tampilkan badge merah kecil
   final bool adaSesiAktif;
 
   const BottomNavDosen({
@@ -97,20 +58,18 @@ class BottomNavDosen extends StatelessWidget {
       child: SafeArea(
         top  : false,
         child: SizedBox(
-          height: 60,
+          height: 56,
           child : Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(_tabs.length, (i) {
               final tab      = _tabs[i];
               final selected = i == currentIndex;
 
-              // Tab Monitor (index 2) — badge sesi aktif
               if (i == DosenTabIndex.monitor) {
                 return _NavItemWithBadge(
                   label    : tab.label,
                   icon     : selected ? tab.iconAktif : tab.icon,
                   selected : selected,
-                  color    : _kNavy,
                   showBadge: adaSesiAktif,
                   onTap    : () => onTap(i),
                 );
@@ -120,7 +79,6 @@ class BottomNavDosen extends StatelessWidget {
                 label   : tab.label,
                 icon    : selected ? tab.iconAktif : tab.icon,
                 selected: selected,
-                color   : _kNavy,
                 onTap   : () => onTap(i),
               );
             }),
@@ -131,20 +89,16 @@ class BottomNavDosen extends StatelessWidget {
   }
 }
 
-// ─── Item nav biasa ───────────────────────────────────────────
-
 class _NavItem extends StatelessWidget {
   final String   label;
   final IconData icon;
   final bool     selected;
-  final Color    color;
   final VoidCallback onTap;
 
   const _NavItem({
     required this.label,
     required this.icon,
     required this.selected,
-    required this.color,
     required this.onTap,
   });
 
@@ -153,36 +107,33 @@ class _NavItem extends StatelessWidget {
     return GestureDetector(
       onTap    : onTap,
       behavior : HitTestBehavior.opaque,
-      child    : Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child  : Column(
-          mainAxisSize     : MainAxisSize.min,
+      child    : SizedBox(
+        width : 60,
+        height: 56,
+        child : Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             AnimatedContainer(
               duration  : const Duration(milliseconds: 200),
-              padding   : const EdgeInsets.all(5),
+              padding   : const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: selected
-                    ? color.withOpacity(0.10)
-                    : Colors.transparent,
+                color       : selected ? _kNavy.withOpacity(0.10) : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
                 icon,
-                color: selected ? color : Colors.grey.shade400,
+                color: selected ? _kNavy : Colors.grey.shade400,
                 size : 22,
               ),
             ),
-            const SizedBox(height: 2),
-            AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 200),
-              style   : TextStyle(
-                color     : selected ? color : Colors.grey.shade400,
+            const SizedBox(height: 1),
+            Text(
+              label,
+              style: TextStyle(
+                color     : selected ? _kNavy : Colors.grey.shade400,
                 fontSize  : 10,
                 fontWeight: selected ? FontWeight.bold : FontWeight.normal,
               ),
-              child: Text(label),
             ),
           ],
         ),
@@ -191,13 +142,10 @@ class _NavItem extends StatelessWidget {
   }
 }
 
-// ─── Item nav dengan badge (tab Monitor) ──────────────────────
-
 class _NavItemWithBadge extends StatelessWidget {
   final String   label;
   final IconData icon;
   final bool     selected;
-  final Color    color;
   final bool     showBadge;
   final VoidCallback onTap;
 
@@ -205,7 +153,6 @@ class _NavItemWithBadge extends StatelessWidget {
     required this.label,
     required this.icon,
     required this.selected,
-    required this.color,
     required this.showBadge,
     required this.onTap,
   });
@@ -215,37 +162,30 @@ class _NavItemWithBadge extends StatelessWidget {
     return GestureDetector(
       onTap    : onTap,
       behavior : HitTestBehavior.opaque,
-      child    : Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-        child  : Column(
-          mainAxisSize     : MainAxisSize.min,
+      child    : SizedBox(
+        width : 60,
+        height: 56,
+        child : Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             AnimatedContainer(
               duration  : const Duration(milliseconds: 200),
-              padding   : const EdgeInsets.all(5),
+              padding   : const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color: selected
-                    ? color.withOpacity(0.10)
-                    : Colors.transparent,
+                color       : selected ? _kNavy.withOpacity(0.10) : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Stack(
                 clipBehavior: Clip.none,
                 children: [
-                  Icon(
-                    icon,
-                    color: selected ? color : Colors.grey.shade400,
-                    size : 22,
-                  ),
-                  // Badge merah kalau ada sesi aktif
+                  Icon(icon, color: selected ? _kNavy : Colors.grey.shade400, size: 22),
                   if (showBadge)
                     Positioned(
-                      top  : -3,
-                      right: -3,
+                      top  : -2,
+                      right: -2,
                       child: Container(
-                        width : 8,
-                        height: 8,
+                        width : 7,
+                        height: 7,
                         decoration: const BoxDecoration(
                           color: Color(0xFFEF5350),
                           shape: BoxShape.circle,
@@ -255,15 +195,14 @@ class _NavItemWithBadge extends StatelessWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 2),
-            AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 200),
-              style   : TextStyle(
-                color     : selected ? color : Colors.grey.shade400,
+            const SizedBox(height: 1),
+            Text(
+              label,
+              style: TextStyle(
+                color     : selected ? _kNavy : Colors.grey.shade400,
                 fontSize  : 10,
                 fontWeight: selected ? FontWeight.bold : FontWeight.normal,
               ),
-              child: Text(label),
             ),
           ],
         ),

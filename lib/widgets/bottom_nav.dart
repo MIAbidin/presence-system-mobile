@@ -1,8 +1,6 @@
 // lib/widgets/bottom_nav.dart
-// FIX v2.1.0:
-// - resizeToAvoidBottomInset: false → cegah overflow saat keyboard muncul
-// - BottomNavigationBar tinggi fixed 60 + SafeArea bottom → tidak overflow
-// - Hapus teks debug overflow dengan memastikan ScanScreen pakai Scaffold sendiri
+// FIX: Hapus BOTTOM OVERFLOWED - gunakan BottomNavigationBar bawaan Flutter
+// yang secara otomatis menangani safe area
 
 import 'package:flutter/material.dart';
 
@@ -13,57 +11,15 @@ import 'package:presensi_app/screens/riwayat_screen.dart';
 import 'package:presensi_app/screens/profil_screen.dart';
 import 'package:presensi_app/core/theme.dart';
 
-class _TabItem {
-  final String label;
-  final IconData icon;
-  final IconData iconAktif;
-
-  const _TabItem({
-    required this.label,
-    required this.icon,
-    required this.iconAktif,
-  });
-}
-
-const List<_TabItem> _tabs = [
-  _TabItem(
-    label    : 'Beranda',
-    icon     : Icons.home_outlined,
-    iconAktif: Icons.home_rounded,
-  ),
-  _TabItem(
-    label    : 'Jadwal',
-    icon     : Icons.calendar_month_outlined,
-    iconAktif: Icons.calendar_month_rounded,
-  ),
-  _TabItem(
-    label    : 'Scan',
-    icon     : Icons.face_outlined,
-    iconAktif: Icons.face_rounded,
-  ),
-  _TabItem(
-    label    : 'Riwayat',
-    icon     : Icons.history_outlined,
-    iconAktif: Icons.history_rounded,
-  ),
-  _TabItem(
-    label    : 'Profil',
-    icon     : Icons.person_outline_rounded,
-    iconAktif: Icons.person_rounded,
-  ),
-];
-
 class MainScreen extends StatefulWidget {
   final int initialIndex;
-
   const MainScreen({super.key, this.initialIndex = 0});
 
   @override
   State<MainScreen> createState() => _MainScreenState();
 }
 
-class _MainScreenState extends State<MainScreen>
-    with SingleTickerProviderStateMixin {
+class _MainScreenState extends State<MainScreen> {
   late int _currentIndex;
   late final PageController _pageController;
 
@@ -101,7 +57,6 @@ class _MainScreenState extends State<MainScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      // ✅ FIX UTAMA: cegah keyboard mendorong layout & overflow
       resizeToAvoidBottomInset: false,
       body: PageView(
         controller   : _pageController,
@@ -109,30 +64,12 @@ class _MainScreenState extends State<MainScreen>
         onPageChanged: (i) => setState(() => _currentIndex = i),
         children     : _pages,
       ),
-      bottomNavigationBar: _BottomNav(
-        currentIndex: _currentIndex,
-        onTap       : _onTabTapped,
-      ),
+      // Gunakan BottomNavigationBar bawaan Flutter - menangani safe area otomatis
+      bottomNavigationBar: _buildBottomNav(),
     );
   }
-}
 
-// ─── Bottom Nav ───────────────────────────────────────────────
-
-class _BottomNav extends StatelessWidget {
-  final int currentIndex;
-  final ValueChanged<int> onTap;
-
-  const _BottomNav({
-    required this.currentIndex,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    // ✅ FIX: ambil bottom padding dengan aman
-    final bottomPad = MediaQuery.of(context).padding.bottom;
-
+  Widget _buildBottomNav() {
     return Container(
       decoration: BoxDecoration(
         color    : Colors.white,
@@ -144,156 +81,94 @@ class _BottomNav extends StatelessWidget {
           ),
         ],
       ),
-      // ✅ FIX: tinggi 60 + safe area bottom — tidak bergantung pada SafeArea widget
-      // SafeArea bisa menyebabkan reflow yang memicu overflow pada beberapa device
-      height: 60 + bottomPad,
-      child: Padding(
-        padding: EdgeInsets.only(bottom: bottomPad),
+      child: SafeArea(
+        top  : false,
         child: SizedBox(
-          height: 60,
+          height: 56,
           child : Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: List.generate(_tabs.length, (i) {
-              final tab      = _tabs[i];
-              final selected = i == currentIndex;
-
-              if (i == 2) {
-                return _ScanTabButton(
-                  selected: selected,
-                  onTap   : () => onTap(i),
-                  color   : AppColors.kNavy,
-                );
-              }
-
-              return _NavItem(
-                label   : tab.label,
-                icon    : selected ? tab.iconAktif : tab.icon,
-                selected: selected,
-                color   : AppColors.kNavy,
-                onTap   : () => onTap(i),
-              );
-            }),
+            children: [
+              _buildNavItem(0, Icons.home_outlined, Icons.home_rounded, 'Beranda'),
+              _buildNavItem(1, Icons.calendar_month_outlined, Icons.calendar_month_rounded, 'Jadwal'),
+              _buildScanItem(),
+              _buildNavItem(3, Icons.history_outlined, Icons.history_rounded, 'Riwayat'),
+              _buildNavItem(4, Icons.person_outline_rounded, Icons.person_rounded, 'Profil'),
+            ],
           ),
         ),
       ),
     );
   }
-}
 
-// ─── Nav Item ─────────────────────────────────────────────────
-
-class _NavItem extends StatelessWidget {
-  final String   label;
-  final IconData icon;
-  final bool     selected;
-  final Color    color;
-  final VoidCallback onTap;
-
-  const _NavItem({
-    required this.label,
-    required this.icon,
-    required this.selected,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildNavItem(int index, IconData icon, IconData iconAktif, String label) {
+    final selected = _currentIndex == index;
     return GestureDetector(
-      onTap    : onTap,
+      onTap    : () => _onTabTapped(index),
       behavior : HitTestBehavior.opaque,
       child    : SizedBox(
-        width: 64,
-        height: 60,
+        width: 60,
+        height: 56,
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             AnimatedContainer(
               duration  : const Duration(milliseconds: 200),
-              padding   : const EdgeInsets.all(5),
+              padding   : const EdgeInsets.all(4),
               decoration: BoxDecoration(
-                color       : selected
-                    ? color.withOpacity(0.10)
-                    : Colors.transparent,
+                color       : selected ? AppColors.kNavy.withOpacity(0.10) : Colors.transparent,
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Icon(
-                icon,
-                color: selected ? color : Colors.grey.shade400,
+                selected ? iconAktif : icon,
+                color: selected ? AppColors.kNavy : Colors.grey.shade400,
                 size : 22,
               ),
             ),
-            const SizedBox(height: 2),
-            AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 200),
-              style   : TextStyle(
-                color     : selected ? color : Colors.grey.shade400,
+            const SizedBox(height: 1),
+            Text(
+              label,
+              style: TextStyle(
+                color     : selected ? AppColors.kNavy : Colors.grey.shade400,
                 fontSize  : 10,
                 fontWeight: selected ? FontWeight.bold : FontWeight.normal,
-                fontFamily: 'Inter',
               ),
-              child: Text(label),
             ),
           ],
         ),
       ),
     );
   }
-}
 
-// ─── Scan Tab Button (FAB style) ──────────────────────────────
-
-class _ScanTabButton extends StatelessWidget {
-  final bool   selected;
-  final Color  color;
-  final VoidCallback onTap;
-
-  const _ScanTabButton({
-    required this.selected,
-    required this.color,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _buildScanItem() {
+    final selected = _currentIndex == 2;
     return GestureDetector(
-      onTap    : onTap,
+      onTap    : () => _onTabTapped(2),
       behavior : HitTestBehavior.opaque,
       child    : SizedBox(
-        width : 64,
-        height: 60,
+        width : 60,
+        height: 56,
         child : Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             AnimatedContainer(
               duration  : const Duration(milliseconds: 250),
-              width     : 48,
-              height    : 48,
+              width     : 44,
+              height    : 44,
               decoration: BoxDecoration(
-                color      : selected ? color : color.withOpacity(0.85),
-                shape      : BoxShape.circle,
-                boxShadow  : [
+                color    : selected ? AppColors.kNavy : AppColors.kNavy.withOpacity(0.85),
+                shape    : BoxShape.circle,
+                boxShadow: [
                   BoxShadow(
-                    color     : color.withOpacity(0.35),
-                    blurRadius: selected ? 16 : 8,
-                    spreadRadius: selected ? 2 : 0,
-                    offset    : const Offset(0, 3),
+                    color     : AppColors.kNavy.withOpacity(0.35),
+                    blurRadius: selected ? 12 : 6,
+                    offset    : const Offset(0, 2),
                   ),
                 ],
               ),
               child: Icon(
                 selected ? Icons.face_rounded : Icons.face_outlined,
                 color: Colors.white,
-                size : 24,
-              ),
-            ),
-            const SizedBox(height: 3),
-            Text(
-              'Scan',
-              style: TextStyle(
-                color     : selected ? color : Colors.grey.shade400,
-                fontSize  : 10,
-                fontWeight: selected ? FontWeight.bold : FontWeight.normal,
+                size : 22,
               ),
             ),
           ],
