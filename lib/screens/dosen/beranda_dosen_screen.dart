@@ -5,6 +5,13 @@
 // - UPDATE: Badge kelas (A/B/C) dan SlotLabel di setiap kartu jadwal
 // - UPDATE: Bottom sheet Buka Sesi — dropdown pilih kelas jika multi-kelas,
 //           kirim kelas_id ke POST /sesi/buka
+//
+// BUGFIX: _ActionBtn tidak lagi pakai minimumSize: Size(double.infinity, ...)
+//   karena menyebabkan BoxConstraints forces infinite width crash ketika
+//   tombol dipakai di dalam Row tanpa Expanded wrapper.
+//   Fix: ganti minimumSize ke Size(0, 44) dan biarkan parent (Expanded) yang
+//   mengatur width. Semua kasus _buildActions() yang sebelumnya menempatkan
+//   _ActionBtn tanpa Expanded sekarang sudah dibungkus Expanded.
 
 import 'dart:async';
 import 'dart:convert';
@@ -148,7 +155,6 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
   bool    _isFetching = false;
 
   List<JadwalHariIniItem> _jadwalHariIni = [];
-  // [DIHAPUS Fase 6.1] _semuaMatakuliah sudah tidak dipakai di beranda
 
   // Sesi-sesi yang sedang aktif (dari _jadwalHariIni)
   List<JadwalHariIniItem> get _sesiAktifList =>
@@ -182,7 +188,6 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
           .map((e) => JadwalHariIniItem.fromJson(e as Map<String, dynamic>))
           .toList();
 
-      // [Fase 6.1] Tidak lagi fetch semua_matakuliah di beranda
       final adaAktif = jadwal.any((j) => j.statusSesi == 'aktif');
       widget.onSesiAktifChanged?.call(adaAktif);
 
@@ -459,7 +464,6 @@ class _BerandaDosenScreenState extends State<BerandaDosenScreen>
 
 // ══════════════════════════════════════════════════════════════
 // [BARU Fase 6.1] WIDGET: Card Sesi Aktif (ringkas di atas)
-// Berbeda dengan _JadwalCard — ini lebih compact, fokus monitor
 // ══════════════════════════════════════════════════════════════
 
 class _SesiAktifCard extends StatelessWidget {
@@ -535,7 +539,6 @@ class _SesiAktifCard extends StatelessWidget {
                         fontSize: 10,
                       ),
                       const SizedBox(width: 6),
-                      // Slot atau jam
                       if (jadwal.slotMulai != null)
                         SlotLabelCompact(
                           slotMulai  : jadwal.slotMulai,
@@ -836,7 +839,7 @@ class _JadwalCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 6),
 
-                        // [UPDATE Fase 6.1] Jam: slot atau jam biasa
+                        // Jam: slot atau jam biasa
                         Row(
                           children: [
                             Icon(Icons.access_time_rounded,
@@ -873,7 +876,7 @@ class _JadwalCard extends StatelessWidget {
             ),
           ),
 
-          // Sub-info row: pertemuan + pengganti + mahasiswa + izin tamu
+          // Sub-info row
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Row(
@@ -991,9 +994,11 @@ class _JadwalCard extends StatelessWidget {
     }
 
     if (jadwal.statusSesi == 'selesai') {
+      // BUGFIX: Kedua tombol dibungkus Expanded agar tidak infinite width
       return Row(
         children: [
           Expanded(
+            flex: 2,
             child: _ActionBtn(
               label    : 'Lihat Rekap',
               icon     : Icons.summarize_rounded,
@@ -1002,12 +1007,16 @@ class _JadwalCard extends StatelessWidget {
               onPressed: onRekap),
           ),
           const SizedBox(width: 8),
-          _ActionBtn(
-            label    : 'Detail',
-            icon     : Icons.school_outlined,
-            color    : AppColors.kNavy,
-            filled   : false,
-            onPressed: onDetailMatakuliah),
+          Expanded(
+            // BUGFIX: Sebelumnya tombol Detail tidak dibungkus Expanded,
+            // menyebabkan BoxConstraints infinite width crash.
+            child: _ActionBtn(
+              label    : 'Detail',
+              icon     : Icons.school_outlined,
+              color    : AppColors.kNavy,
+              filled   : false,
+              onPressed: onDetailMatakuliah),
+          ),
         ],
       );
     }
@@ -1025,19 +1034,22 @@ class _JadwalCard extends StatelessWidget {
             onPressed: onBukaSesi),
         ),
         const SizedBox(width: 8),
-        _ActionBtn(
-          label    : 'Detail',
-          icon     : Icons.school_outlined,
-          color    : AppColors.kNavy,
-          filled   : false,
-          onPressed: onDetailMatakuliah),
+        Expanded(
+          // BUGFIX: Expanded ditambahkan agar width terbatas
+          child: _ActionBtn(
+            label    : 'Detail',
+            icon     : Icons.school_outlined,
+            color    : AppColors.kNavy,
+            filled   : false,
+            onPressed: onDetailMatakuliah),
+        ),
       ],
     );
   }
 }
 
 // ══════════════════════════════════════════════════════════════
-// WIDGET: Bottom Sheet Buka Sesi — UPDATE dengan dropdown kelas
+// WIDGET: Bottom Sheet Buka Sesi — dengan dropdown kelas
 // ══════════════════════════════════════════════════════════════
 
 class _BukaSesiBottomSheet extends StatefulWidget {
@@ -1061,7 +1073,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
   bool   _mulaiDariJadwal = true;
   bool   _isLoading       = false;
 
-  // [BARU Fase 6.1] Kelas terpilih (null = tidak ada multi-kelas)
   Map<String, dynamic>? _selectedKelas;
 
   final List<int?> _opsiTerlambat = [null, 0, 10, 15, 30];
@@ -1078,7 +1089,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
   @override
   void initState() {
     super.initState();
-    // Jika hanya satu kelas, langsung auto-select
     if (widget.jadwal.kelasList.length == 1) {
       _selectedKelas = widget.jadwal.kelasList.first;
     }
@@ -1091,7 +1101,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
       return;
     }
 
-    // Validasi: jika multi-kelas, wajib pilih kelas
     if (_hasMultiKelas && _selectedKelas == null) {
       _showSnack('Pilih kelas terlebih dahulu');
       return;
@@ -1107,7 +1116,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
         'mulai_dari_jam_jadwal': _mulaiDariJadwal,
       };
 
-      // [BARU Fase 6.1] Kirim kelas_id jika tersedia
       final kelasId = _selectedKelas?['id'] as String?
                    ?? widget.jadwal.kelasId;
       if (kelasId != null && kelasId.isNotEmpty) {
@@ -1155,7 +1163,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
           mainAxisSize      : MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // Handle bar
             Center(
               child: Container(
                 width : 36, height: 4,
@@ -1166,7 +1173,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
               ),
             ),
 
-            // Judul
             Text('Buka Sesi Presensi',
               style: AppTypography.heading3),
             const SizedBox(height: 4),
@@ -1178,7 +1184,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
                     style  : AppTypography.body2,
                     overflow: TextOverflow.ellipsis),
                 ),
-                // Badge kelas dari jadwal (jika ada & single kelas)
                 if (widget.jadwal.kodeKelas != null && !_hasMultiKelas) ...[
                   const SizedBox(width: 6),
                   KelasBadge(kodeKelas: widget.jadwal.kodeKelas!),
@@ -1190,7 +1195,7 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
             const Divider(),
             const SizedBox(height: 16),
 
-            // ── [BARU Fase 6.1] Dropdown pilih kelas (multi-kelas) ──
+            // Dropdown kelas jika multi-kelas
             if (_hasMultiKelas) ...[
               Text('Kelas',
                 style: AppTypography.bodyBold.copyWith(
@@ -1246,7 +1251,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
               const SizedBox(height: 16),
             ],
 
-            // ── Pertemuan ke ──────────────────────────────────
             _SheetInfoRow(
               label: 'Pertemuan ke',
               value: widget.jadwal.pertemuanKe != null
@@ -1254,7 +1258,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
             ),
             const SizedBox(height: 12),
 
-            // ── Waktu mulai ───────────────────────────────────
             Row(
               children: [
                 Expanded(
@@ -1282,7 +1285,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
             ),
             const SizedBox(height: 16),
 
-            // ── Mode kelas ────────────────────────────────────
             Text('Mode Kelas',
               style: AppTypography.bodyBold.copyWith(
                 color: AppColors.kNavy, fontSize: 13)),
@@ -1310,7 +1312,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
             ),
             const SizedBox(height: 16),
 
-            // ── Toleransi terlambat ───────────────────────────
             Text('Toleransi Terlambat',
               style: AppTypography.bodyBold.copyWith(
                 color: AppColors.kNavy, fontSize: 13)),
@@ -1331,7 +1332,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
             ),
             const SizedBox(height: 16),
 
-            // ── Durasi kode (online) ──────────────────────────
             if (_mode == 'online') ...[
               Text('Durasi Kode Aktif',
                 style: AppTypography.bodyBold.copyWith(
@@ -1354,7 +1354,6 @@ class _BukaSesiBottomSheetState extends State<_BukaSesiBottomSheet> {
               const SizedBox(height: 16),
             ],
 
-            // ── Tombol buka sesi ──────────────────────────────
             SizedBox(
               height: 52,
               child : ElevatedButton.icon(
@@ -1404,11 +1403,9 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Row(
     children: [
-      Text(title,
-        style: AppTypography.sectionTitle),
+      Text(title, style: AppTypography.sectionTitle),
       const Spacer(),
-      Text(subtitle,
-        style: AppTypography.caption),
+      Text(subtitle, style: AppTypography.caption),
     ],
   );
 }
@@ -1433,6 +1430,13 @@ class _InfoChip extends StatelessWidget {
   );
 }
 
+// ══════════════════════════════════════════════════════════════
+// BUGFIX: _ActionBtn — minimumSize TIDAK boleh double.infinity
+// karena menyebabkan BoxConstraints infinite width crash ketika
+// widget dipakai di Row tanpa Expanded.
+// Fix: gunakan Size(0, 44) — width diatur oleh parent (Expanded).
+// ══════════════════════════════════════════════════════════════
+
 class _ActionBtn extends StatelessWidget {
   final String   label;
   final IconData icon;
@@ -1448,34 +1452,38 @@ class _ActionBtn extends StatelessWidget {
     required this.onPressed,
   });
 
+  static const _shape = RoundedRectangleBorder(
+    borderRadius: BorderRadius.all(Radius.circular(10)),
+  );
+
   @override
   Widget build(BuildContext context) {
+    // BUGFIX: minimumSize: Size(0, 44) — jangan pakai double.infinity
+    // Width dikontrol oleh Expanded di parent Row.
     if (filled) {
       return ElevatedButton.icon(
         onPressed: onPressed,
         icon : Icon(icon, size: 16),
-        label: Text(label,
-          style: AppTypography.buttonSmall),
+        label: Text(label, style: AppTypography.buttonSmall),
         style: ElevatedButton.styleFrom(
           backgroundColor: color,
           foregroundColor: Colors.white,
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(10)),
+          minimumSize    : const Size(0, 44),  // ← FIX: bukan double.infinity
+          padding        : const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+          shape          : _shape,
         ),
       );
     }
     return OutlinedButton.icon(
       onPressed: onPressed,
       icon : Icon(icon, size: 16),
-      label: Text(label,
-        style: AppTypography.buttonSmall),
+      label: Text(label, style: AppTypography.buttonSmall),
       style: OutlinedButton.styleFrom(
         foregroundColor: color,
-        side: BorderSide(color: color.withOpacity(0.4)),
-        padding: const EdgeInsets.symmetric(vertical: 10),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10)),
+        side           : BorderSide(color: color.withOpacity(0.4)),
+        minimumSize    : const Size(0, 44),  // ← FIX: bukan double.infinity
+        padding        : const EdgeInsets.symmetric(horizontal: 8, vertical: 10),
+        shape          : _shape,
       ),
     );
   }
